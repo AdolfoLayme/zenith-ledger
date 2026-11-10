@@ -27,7 +27,7 @@ export const fakeCloud: CloudAuditor = {
         ...p.signals.filter((s) => s.type === 'price_increase').map((s) => `Was the new price from ${s.vendor} agreed, and is the plan still needed?`),
         ...p.signals.filter((s) => s.type === 'round_transfer').map((s) => `What was the ${usd(s.amountCents)} transfer for on ${s.date}, and is it documented?`),
       ],
-      narrative: `Between ${p.period.from} and ${p.period.to} there were ${p.totals.count} transactions: ${usd(p.totals.incomeCents)} in and ${usd(p.totals.expenseCents)} out. ${findings.length} items need a second look, mostly around ${p.vendors[0]?.alias ?? 'a few vendors'} and other recurring vendors.`,
+      narrative: `Between ${p.period.from} and ${p.period.to} there were ${p.totals.count} transactions: ${usd(p.totals.incomeCents)} in and ${usd(p.totals.expenseCents)} out. ${findings.length} items need a second look, starting with ${(p.signals.find((x) => x.type === 'duplicate') ?? p.signals[0])?.vendor ?? 'a few vendors'}.`,
     };
     return report;
   },

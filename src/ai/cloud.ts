@@ -31,7 +31,7 @@ export function createCloudAuditor(): CloudAuditor {
       const model = getGenerativeModel(getFirebase().ai, {
         mode: InferenceMode.ONLY_IN_CLOUD,
         inCloudParams: {
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3.5-flash-lite',
           systemInstruction: SYSTEM,
           generationConfig: { responseMimeType: 'application/json', responseSchema: schema },
         },

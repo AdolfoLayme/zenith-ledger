@@ -1,0 +1,135 @@
+{
+  "pii": {
+    "cards": [
+      "4111111111111111",
+      "5555555555554444",
+      "4012888888881881"
+    ],
+    "emails": [
+      "priya.nair@brightmail.example",
+      "emily.carter@gmail.com",
+      "maria.garcia@outlook.com"
+    ],
+    "phones": [
+      "(415) 555-0132",
+      "+1 718 555 0123",
+      "646.555.0166",
+      "212-555-0187",
+      "(312) 555-0149"
+    ],
+    "ibans": [
+      "DE89370400440532013000",
+      "GB82WEST12345698765432",
+      "FR1420041010050500013M02606"
+    ],
+    "accounts": [
+      "4400981123",
+      null
+    ],
+    "ssns": [
+      "421-18-3306"
+    ],
+    "eins": [
+      "84-1234567"
+    ],
+    "urls": [
+      "https://pay.northwind-retail.example/checkout?token=af0bdd042e",
+      "https://pay.northwind-retail.example/checkout?token=4d9201bb77",
+      "https://pay.northwind-retail.example/checkout?token=830fd4905f",
+      "https://pay.northwind-retail.example/checkout?token=e3da38d985",
+      "https://pay.northwind-retail.example/checkout?token=6e4cb0b9ac",
+      "https://pay.northwind-retail.example/checkout?token=5a67e83b1a",
+      "https://pay.northwind-retail.example/checkout?token=9c8671afbd",
+      "https://pay.northwind-retail.example/checkout?token=bde6326595",
+      "https://pay.northwind-retail.example/checkout?token=88ad8eb4c5"
+    ],
+    "persons": [
+      "Hans Meyer",
+      "Priya Nair",
+      "Emily Carter",
+      "John Smith",
+      "Luis Fernandez",
+      "Sarah Johnson",
+      "David Okafor",
+      "Maria Garcia"
+    ],
+    "vendors": [
+      "PINECREST INSURANCE",
+      "STREAMDESK PRO",
+      "CLOUDNEST HOSTING",
+      "NORTHWIND SOFTWARE",
+      "CITY POWER & WATER",
+      "METRO TELECOM",
+      "Summit Fitness Co",
+      "Lakeside Dental LLC",
+      "Northwind Retail",
+      "DELTA OFFICE DEPOT",
+      "ACME SUPPLY CO",
+      "BRIGHTLINE PLUMBING LLC",
+      "CORNER BISTRO",
+      "GREEN TABLE CAFE",
+      "HARBOR COFFEE ROASTERS",
+      "SKYLINE AIRLINES",
+      "Redwood Bakery"
+    ]
+  },
+  "anomalies": {
+    "duplicates": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -18420,
+        "dates": [
+          "2025-11-10",
+          "2025-11-11"
+        ]
+      },
+      {
+        "vendor": "CORNER BISTRO",
+        "cents": -9635,
+        "dates": [
+          "2025-12-04",
+          "2025-12-06"
+        ]
+      }
+    ],
+    "priceIncreases": [
+      {
+        "vendor": "STREAMDESK PRO",
+        "fromCents": 1599,
+        "toCents": 1999,
+        "date": "2025-12-09"
+      }
+    ],
+    "outliers": [
+      {
+        "category": "Supplies",
+        "vendor": "BRIGHTLINE PLUMBING LLC",
+        "cents": -238000,
+        "date": "2025-11-21"
+      },
+      {
+        "category": "Meals",
+        "vendor": "CORNER BISTRO",
+        "cents": -41780,
+        "date": "2025-10-24"
+      }
+    ],
+    "roundTransfers": [
+      {
+        "cents": -500000,
+        "date": "2025-10-29"
+      },
+      {
+        "cents": -150000,
+        "date": "2025-12-16"
+      }
+    ],
+    "weekendSpend": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -64015,
+        "date": "2025-11-15"
+      }
+    ]
+  }
+}

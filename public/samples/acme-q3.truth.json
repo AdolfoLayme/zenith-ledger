@@ -1,0 +1,130 @@
+{
+  "pii": {
+    "cards": [
+      "6011111111111117",
+      "4111111111111111",
+      "5555555555554444"
+    ],
+    "emails": [
+      "priya.nair@brightmail.example",
+      "emily.carter@gmail.com",
+      "john.smith@gmail.com",
+      "d.okafor@mail.example",
+      "maria.garcia@outlook.com"
+    ],
+    "phones": [
+      "(415) 555-0132",
+      "+1 718 555 0123",
+      "212-555-0187",
+      "646.555.0166"
+    ],
+    "ibans": [
+      "DE89370400440532013000",
+      "GB82WEST12345698765432",
+      "FR1420041010050500013M02606"
+    ],
+    "accounts": [
+      "4400981123",
+      "90210347"
+    ],
+    "ssns": [
+      "512-44-7731"
+    ],
+    "eins": [
+      "84-1234567"
+    ],
+    "urls": [
+      "https://pay.northwind-retail.example/checkout?token=bce56921dd",
+      "https://pay.northwind-retail.example/checkout?token=9bea9054bd",
+      "https://pay.northwind-retail.example/checkout?token=bfbdd4951d"
+    ],
+    "persons": [
+      "Hans Meyer",
+      "Priya Nair",
+      "David Okafor",
+      "Sarah Johnson",
+      "Maria Garcia",
+      "Emily Carter",
+      "Luis Fernandez",
+      "John Smith"
+    ],
+    "vendors": [
+      "PINECREST INSURANCE",
+      "CLOUDNEST HOSTING",
+      "STREAMDESK PRO",
+      "NORTHWIND SOFTWARE",
+      "CITY POWER & WATER",
+      "METRO TELECOM",
+      "Redwood Bakery",
+      "Summit Fitness Co",
+      "Northwind Retail",
+      "BRIGHTLINE PLUMBING LLC",
+      "DELTA OFFICE DEPOT",
+      "CORNER BISTRO",
+      "HARBOR COFFEE ROASTERS",
+      "GREEN TABLE CAFE",
+      "SKYLINE AIRLINES",
+      "Lakeside Dental LLC",
+      "ACME SUPPLY CO"
+    ]
+  },
+  "anomalies": {
+    "duplicates": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -18420,
+        "dates": [
+          "2025-08-10",
+          "2025-08-11"
+        ]
+      },
+      {
+        "vendor": "CORNER BISTRO",
+        "cents": -9635,
+        "dates": [
+          "2025-09-04",
+          "2025-09-06"
+        ]
+      }
+    ],
+    "priceIncreases": [
+      {
+        "vendor": "CLOUDNEST HOSTING",
+        "fromCents": 4900,
+        "toCents": 5900,
+        "date": "2025-09-05"
+      }
+    ],
+    "outliers": [
+      {
+        "category": "Supplies",
+        "vendor": "BRIGHTLINE PLUMBING LLC",
+        "cents": -238000,
+        "date": "2025-08-22"
+      },
+      {
+        "category": "Meals",
+        "vendor": "CORNER BISTRO",
+        "cents": -41780,
+        "date": "2025-07-24"
+      }
+    ],
+    "roundTransfers": [
+      {
+        "cents": -500000,
+        "date": "2025-07-30"
+      },
+      {
+        "cents": -150000,
+        "date": "2025-09-16"
+      }
+    ],
+    "weekendSpend": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -64015,
+        "date": "2025-08-16"
+      }
+    ]
+  }
+}

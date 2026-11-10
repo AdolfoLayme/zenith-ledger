@@ -4,8 +4,8 @@ Synthetic, three months each, USD, for a fictional small business ("Acme").
 Everything personal in these files is invented test data: names, emails, phone
 numbers, card numbers (Luhn-valid test numbers), IBANs, SSNs and EINs.
 
-- acme-q3.csv: 118 rows, ISO dates (Jul-Sep 2025)
-- acme-q4.csv: 114 rows, MM/DD/YYYY dates (Oct-Dec 2025)
+- acme-q3.csv: 117 rows, ISO dates (Jul-Sep 2025)
+- acme-q4.csv: 112 rows, MM/DD/YYYY dates (Oct-Dec 2025)
 - *.truth.json: the seeded PII and anomalies, used by the privacy rule tests
 
 Regenerate with `pnpm samples`.

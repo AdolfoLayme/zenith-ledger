@@ -9,14 +9,12 @@
       "priya.nair@brightmail.example",
       "emily.carter@gmail.com",
       "john.smith@gmail.com",
-      "d.okafor@mail.example",
-      "maria.garcia@outlook.com"
+      "d.okafor@mail.example"
     ],
     "phones": [
       "(415) 555-0132",
-      "+1 718 555 0123",
-      "212-555-0187",
-      "646.555.0166"
+      "(312) 555-0149",
+      "212-555-0187"
     ],
     "ibans": [
       "DE89370400440532013000",
@@ -25,7 +23,7 @@
     ],
     "accounts": [
       "4400981123",
-      "90210347"
+      "778120045533"
     ],
     "ssns": [
       "512-44-7731"
@@ -34,19 +32,22 @@
       "84-1234567"
     ],
     "urls": [
-      "https://pay.northwind-retail.example/checkout?token=bce56921dd",
+      "https://pay.northwind-retail.example/checkout?token=cfd2037406",
+      "https://pay.northwind-retail.example/checkout?token=dfc90920a3",
+      "https://pay.northwind-retail.example/checkout?token=b40617d422",
+      "https://pay.northwind-retail.example/checkout?token=b2e5783f86",
+      "https://pay.northwind-retail.example/checkout?token=a175aa6df1",
       "https://pay.northwind-retail.example/checkout?token=9bea9054bd",
+      "https://pay.northwind-retail.example/checkout?token=9e578361b9",
       "https://pay.northwind-retail.example/checkout?token=bfbdd4951d"
     ],
     "persons": [
       "Hans Meyer",
       "Priya Nair",
       "David Okafor",
-      "Sarah Johnson",
-      "Maria Garcia",
       "Emily Carter",
       "Luis Fernandez",
-      "John Smith"
+      "Sarah Johnson"
     ],
     "vendors": [
       "PINECREST INSURANCE",
@@ -60,12 +61,11 @@
       "Northwind Retail",
       "BRIGHTLINE PLUMBING LLC",
       "DELTA OFFICE DEPOT",
+      "GREEN TABLE CAFE",
       "CORNER BISTRO",
       "HARBOR COFFEE ROASTERS",
-      "GREEN TABLE CAFE",
-      "SKYLINE AIRLINES",
-      "Lakeside Dental LLC",
-      "ACME SUPPLY CO"
+      "ACME SUPPLY CO",
+      "SKYLINE AIRLINES"
     ]
   },
   "anomalies": {

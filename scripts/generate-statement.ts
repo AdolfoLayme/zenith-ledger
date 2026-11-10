@@ -71,7 +71,7 @@ function build(q: 3 | 4, year: number, seed: number) {
       if (m === 2) truth.anomalies.priceIncreases.push({ vendor: 'STREAMDESK PRO', fromCents: 1599, toCents: 1999, date: iso(weekday(dayIn(9))) });
       add(weekday(dayIn(7)), `${vendor('CLOUDNEST HOSTING')} subscription renewal`, -59);
     }
-    add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -between(120, 140));
+    add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -129);
     add(weekday(dayIn(20)), `${vendor('CITY POWER & WATER')} utility bill`, -between(160, 260));
     add(weekday(dayIn(21)), `${vendor('METRO TELECOM')} business line ${seen('phones', PHONES[m % 2])}`, -between(85, 99));
     add(weekday(dayIn(14)), `IRS EFTPS payroll tax EIN ${seen('eins', EINS[0])}`, -between(900, 1100));
@@ -123,7 +123,7 @@ function build(q: 3 | 4, year: number, seed: number) {
   truth.anomalies.duplicates.push({ vendor: 'CORNER BISTRO', cents: -9635, dates: [iso(dup2), iso(addDays(dup2, 2))] });
 
   const supDay = weekday(day(year, firstMonth + 1, 22));
-  add(supDay, `POS DEBIT ${vendor('BRIGHTLINE PLUMBING LLC')} emergency repair acct ${seen('accounts', ACCTS[q])}`, -2380);
+  add(supDay, `POS DEBIT ${vendor('BRIGHTLINE PLUMBING LLC')} emergency repair acct ${seen('accounts', ACCTS[q - 1])}`, -2380);
   truth.anomalies.outliers.push({ category: 'Supplies', vendor: 'BRIGHTLINE PLUMBING LLC', cents: -238000, date: iso(supDay) });
   const mealDay = weekday(day(year, firstMonth, 24));
   add(mealDay, `POS DEBIT ${vendor('CORNER BISTRO')} team dinner`, -417.8);

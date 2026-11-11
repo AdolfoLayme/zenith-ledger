@@ -14,6 +14,8 @@ export interface OnDevice {
   extract(descriptions: string[]): Promise<RowEntities[]>;
   /** Short offline summary of an already-redacted overview. */
   summarize(overview: string): Promise<string>;
+  /** Reads transaction rows from a JPEG/PNG statement or receipt photo. Raw model output, normalized by the caller. */
+  readImage(image: Blob): Promise<unknown>;
 }
 
 /** Receives only the payload the user approved in the Privacy Firewall. */

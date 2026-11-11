@@ -63,3 +63,18 @@ export function parseStatement(text: string): StatementRow[] {
     balanceCents: bal >= 0 && r[bal]?.trim() ? toCents(r[bal]) : null,
   }));
 }
+
+/** Rows an on-device model read from a photo, normalized exactly like CSV rows. Unreadable rows are dropped. */
+export function toStatementRows(items: unknown): StatementRow[] {
+  const rows: StatementRow[] = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const o = (it ?? {}) as Record<string, unknown>;
+    try {
+      const description = String(o.description ?? '').trim();
+      if (!description) continue;
+      rows.push({ date: toIsoDate(String(o.date ?? '')), description, amountCents: toCents(String(o.amount ?? '')), currency: 'USD', balanceCents: null });
+    } catch { /* unreadable row */ }
+  }
+  if (!rows.length) throw new Error('No transactions could be read from this photo. Try a sharper, straight-on picture.');
+  return rows;
+}

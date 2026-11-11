@@ -23,7 +23,9 @@ const schema = Schema.object({
 
 const SYSTEM = `You are a careful bookkeeping reviewer. You receive an anonymized summary: vendors are aliases like Vendor_A,
 amounts are integer cents, and "signals" were computed by deterministic code. Explain each signal, rank what matters,
-write questions an accountant should ask, and a short narrative. Refer to vendors only by their alias. Do not invent amounts.`;
+write questions an accountant should ask, and a short narrative. Refer to vendors only by their alias. Do not invent amounts.
+Never write "cents" in your answer: show every amount in US dollars by moving the decimal point two places
+(2743738 cents -> $27,437.38).`;
 
 export function createCloudAuditor(): CloudAuditor {
   return {
@@ -36,8 +38,16 @@ export function createCloudAuditor(): CloudAuditor {
           generationConfig: { responseMimeType: 'application/json', responseSchema: schema },
         },
       });
-      const res = await model.generateContent(approvedPayloadJson);
-      return JSON.parse(res.response.text()) as CloudReport;
+      // the same approved payload is resent only on "high demand" (500/503); nothing else changes between tries
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const res = await model.generateContent(approvedPayloadJson);
+          return JSON.parse(res.response.text()) as CloudReport;
+        } catch (err) {
+          if (attempt >= 3 || !/\[(500|503)\b/.test(String(err))) throw err;
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
     },
   };
 }

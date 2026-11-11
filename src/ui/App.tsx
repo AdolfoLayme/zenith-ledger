@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAi } from '../ai';
+import { PHOTO_TYPES, readStatementPhoto } from '../ai/photo';
 import type { CloudReport } from '../ai/types';
 import { parseStatement } from '../core/csv';
-import { analyzeLocally, buildPayload, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
+import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
+import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
 import type { Signal } from '../core/analytics';
-import { listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
+import { clearLocalData, listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
 import { usd } from './format';
 
-type Screen = 'upload' | 'local' | 'firewall' | 'report';
+type Screen = 'upload' | 'local' | 'firewall' | 'report' | 'receipts';
 type Nano = 'idle' | 'downloading' | 'ready' | 'unavailable';
 
 const STEPS: [Screen, string][] = [['upload', 'Statement'], ['local', 'Local analysis'], ['firewall', 'Privacy Firewall'], ['report', 'Audit report']];
@@ -55,9 +57,22 @@ export function App() {
   const [history, setHistory] = useState<Receipt[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [over, setOver] = useState(false);
+  const [source, setSource] = useState<'csv' | 'photo'>('csv');
+  const [summary, setSummary] = useState<{ state: 'idle' | 'working' | 'done' | 'error'; text: string }>({ state: 'idle', text: '' });
+  const [confirmClear, setConfirmClear] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { listReceipts().then(setHistory).catch(() => {}); }, [receipt]);
+  const refreshHistory = () => listReceipts().then(setHistory).catch(() => {});
+  useEffect(() => { refreshHistory(); }, [receipt]);
+
+  // Offline: the cloud is out of reach, so Gemini Nano writes a short summary from the anonymized overview.
+  useEffect(() => {
+    if (online || !analysis || nano !== 'ready' || !ai.onDevice || summary.state !== 'idle') return;
+    setSummary({ state: 'working', text: '' });
+    ai.onDevice.summarize(summaryOverview(analysis))
+      .then((text) => setSummary({ state: 'done', text }))
+      .catch(() => setSummary({ state: 'error', text: '' }));
+  }, [online, analysis, nano, ai.onDevice, summary.state]);
 
   async function enableNano() {
     if (!ai.onDevice) return;
@@ -66,24 +81,39 @@ export function App() {
     catch (e) { setNano('unavailable'); setError(`On-device model could not start: ${(e as Error).message}`); }
   }
 
-  async function load(text: string, name: string) {
+  async function load(read: () => Promise<StatementRow[]>, name: string, from: 'csv' | 'photo') {
     setError(''); setBusy(true);
     try {
-      const rows = parseStatement(text);
+      const rows = await read();
       let entities;
       if (nano === 'ready' && ai.onDevice) {
         try { entities = await ai.onDevice.extract(rows.map((r) => r.description)); } catch { entities = undefined; }
       }
       const a = analyzeLocally(rows, { entities });
-      setAnalysis(a); setFileName(name); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
+      setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
+      setSummary({ state: 'idle', text: '' });
       saveAliasMap(name, a.aliases).catch(() => {});
       setScreen('local');
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
 
-  const loadSample = async (n: 'q3' | 'q4') => load(await (await fetch(`${import.meta.env.BASE_URL}samples/acme-${n}.csv`)).text(), `acme-${n}.csv`);
-  const onFile = async (f?: File) => { if (f) await load(await f.text(), f.name); };
+  const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
+  const loadSample = (n: 'q3' | 'q4') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`, 'csv');
+  // A photo is only ever read by the on-device model; without it, readStatementPhoto refuses before anything happens.
+  const loadPhoto = (image: Blob, name: string) => load(() => readStatementPhoto(image, ai.onDevice, nano === 'ready'), name, 'photo');
+  const loadSamplePhoto = async (name: string) => loadPhoto(await (await sample(name)).blob(), name);
+  const onFile = async (f?: File) => {
+    if (!f) return;
+    if (f.type.startsWith('image/')) await loadPhoto(f, f.name);
+    else await load(async () => parseStatement(await f.text()), f.name, 'csv');
+  };
+
+  async function deleteAll() {
+    await clearLocalData();
+    setConfirmClear(false);
+    await refreshHistory();
+  }
 
   async function toFirewall() {
     if (!analysis) return;
@@ -109,10 +139,14 @@ export function App() {
   return (
     <div className="shell">
       <header className="top">
-        <div className="brand"><i />Zenith Ledger</div>
+        <button className="brand" onClick={() => setScreen('upload')}><i />Zenith Ledger</button>
         <nav className="steps" aria-label="Progress">
           {STEPS.map(([k, label], i) => <span key={k} className={i === idx ? 'on' : i < idx ? 'past' : ''}>{i + 1}. {label}</span>)}
         </nav>
+        <div className="row tools">
+          <span className={`badge ${online ? 'accent' : 'warn'}`} data-testid="net"><span className="dot" />{online ? 'Online' : 'Offline'}</span>
+          <button className={`btn small ${screen === 'receipts' ? 'active' : ''}`} onClick={() => setScreen('receipts')}>Data Receipts <span className="count">{history.length}</span></button>
+        </div>
       </header>
 
       {error && <div className="note warn" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
@@ -123,13 +157,17 @@ export function App() {
           <p className="lead">Drop a bank statement. Names, cards, emails and account numbers are found and replaced on this device. You see exactly what would be sent, and nothing leaves until you approve it.</p>
           <div className={`drop ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
             onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]); }}>
-            <p>Drag a CSV statement here (columns: date, description, amount)</p>
-            <div className="row" style={{ justifyContent: 'center' }}>
-              <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>Choose a CSV file</button>
-              <button className="btn" onClick={() => loadSample('q3')} disabled={busy}>Try sample statement</button>
-              <button className="btn" onClick={() => loadSample('q4')} disabled={busy}>Sample Q4 (US dates)</button>
+            <p className="droptitle">Drop a CSV statement, or a photo of a statement or receipt</p>
+            <p>CSV columns: date, description, amount. Photos (JPEG or PNG) are read by the on-device model only.</p>
+            <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>
+            <input ref={fileRef} type="file" accept={['.csv', 'text/csv', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+            <div className="samples">
+              <span className="muted">Or try synthetic samples:</span>
+              <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
+              <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
+              <button className="link" onClick={() => loadSamplePhoto('statement-photo.png')} disabled={busy}>Statement photo</button>
+              <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png')} disabled={busy}>Receipt photo</button>
             </div>
-            <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => onFile(e.target.files?.[0])} />
           </div>
           <div className="card mt">
             <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -137,9 +175,9 @@ export function App() {
                 <h3>On-device AI (Gemini Nano)</h3>
                 <span className="muted">
                   {nano === 'ready' ? 'Ready. Names and merchants will be found by the on-device model.'
-                    : nano === 'unavailable' ? 'Not available in this browser. Strict mode: only rule-based detectors run, and free-text descriptions are dropped from anything sent.'
+                    : nano === 'unavailable' ? 'Not available in this browser. Strict mode: only rule-based detectors run, free-text descriptions are dropped from anything sent, and photos cannot be read.'
                     : nano === 'downloading' ? 'Preparing the model. The first download can take a few minutes.'
-                    : 'Optional. Finds person and business names inside free-text descriptions, fully offline.'}
+                    : 'Optional for CSV, required for photos. Finds person and business names inside free-text descriptions, fully offline.'}
                 </span>
               </div>
               {nano === 'idle' && <button className="btn" onClick={enableNano}>Enable on-device AI</button>}
@@ -156,9 +194,24 @@ export function App() {
       {screen === 'local' && analysis && (
         <section>
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <div><h2>Local analysis</h2><span className="muted">{fileName} · {analysis.period.from} to {analysis.period.to}</span></div>
-            <span className="badge"><span className="dot" />On this device · offline-capable</span>
+            <div><h2>Local analysis</h2><span className="muted">{fileName}{source === 'photo' ? ' · photo read on this device by Gemini Nano' : ''} · {analysis.period.from} to {analysis.period.to}</span></div>
+            <span className="badge"><span className="dot" />On this device · works offline</span>
           </div>
+          {!online && (
+            <div className="card offline mt" data-testid="offline-summary">
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <h3 style={{ margin: 0 }}>Offline summary</h3>
+                <span className="badge warn"><span className="dot" />No connection · Gemini Nano on this device</span>
+              </div>
+              <p style={{ margin: '10px 0 0' }}>
+                {nano !== 'ready' ? 'You are offline. Everything on this page keeps working. Turn on on-device AI to get a written summary without a connection.'
+                  : summary.state === 'done' ? real(summary.text)
+                  : summary.state === 'error' ? 'The on-device model could not write a summary this time. The numbers below are complete.'
+                  : 'Writing a short summary on this device…'}
+              </p>
+              <p className="muted" style={{ fontSize: 13, margin: '8px 0 0' }}>Deep analysis in the cloud comes back when you reconnect.</p>
+            </div>
+          )}
           <div className="grid g4 mt">
             <div className="card stat"><b>{analysis.rows.length}</b><span>transactions</span></div>
             <div className="card stat"><b>{analysis.counters.piiFound}</b><span>sensitive values found</span></div>
@@ -210,7 +263,6 @@ export function App() {
         <section>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div><h2>Privacy Firewall</h2><span className="muted">This is the exact JSON that will leave your device if you approve.</span></div>
-            <span className={`badge ${online ? 'accent' : 'warn'}`}><span className="dot" />{online ? 'Online' : 'Offline'}</span>
           </div>
           <div className="grid g4 mt">
             <div className="card stat"><b>{built.counters.piiFound}</b><span>sensitive values found</span></div>
@@ -224,8 +276,8 @@ export function App() {
             <div className="col"><h3>Stays on this device</h3>
               {analysis.rows.filter((r) => r.spans.length).slice(0, 5).map((r) => <div className="line" key={r.index}><Highlighted row={r} /></div>)}
             </div>
-            <div className="col"><h3 className="out">Sent to the cloud</h3>
-              {analysis.rows.filter((r) => r.spans.length).slice(0, 5).map((r) => <div className="line" key={r.index}><span className="mono">{r.vendorAlias}</span> · {r.category} · {usd(r.amountCents)} · {r.date}</div>)}
+            <div className="col"><h3 className="out">What the cloud gets instead</h3>
+              {analysis.rows.filter((r) => r.spans.length).slice(0, 5).map((r) => <div className="line" key={r.index}><span className="mono">{r.vendorAlias}</span> · {r.category} · <span className="muted">row not sent, only counted in totals</span></div>)}
             </div>
           </div>
 
@@ -269,7 +321,39 @@ export function App() {
             </div>
             <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>Stored in this browser only ({history.length} receipt{history.length === 1 ? '' : 's'} so far).</p>
           </div>
-          <div className="row mt2"><button className="btn" onClick={() => setScreen('upload')}>Audit another statement</button></div>
+          <div className="row mt2">
+            <button className="btn" onClick={() => setScreen('upload')}>Audit another statement</button>
+            <button className="btn" onClick={() => setScreen('receipts')}>All Data Receipts</button>
+          </div>
+        </section>
+      )}
+
+      {screen === 'receipts' && (
+        <section>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div><h2>Data Receipts</h2><span className="muted">One entry per approved send: when, the SHA-256 of the exact payload, and which fields left this device.</span></div>
+            {history.length > 0 && (confirmClear
+              ? <div className="row"><button className="btn" onClick={() => setConfirmClear(false)}>Cancel</button><button className="btn danger" onClick={deleteAll}>Delete receipts and alias maps</button></div>
+              : <button className="btn" onClick={() => setConfirmClear(true)}>Delete all</button>)}
+          </div>
+          {history.length === 0
+            ? <div className="card mt empty"><b>No data has left this device.</b><span className="muted">Receipts appear here after you approve a send in the Privacy Firewall.</span></div>
+            : (
+              <ol className="receipts mt">
+                {history.map((r) => (
+                  <li className="card" key={r.id ?? r.sentAt}>
+                    <div className="grid g3">
+                      <div><span className="muted">Sent at</span><div>{new Date(r.sentAt).toLocaleString('en-US')}</div></div>
+                      <div><span className="muted">Rows summarized</span><div>{r.rowCount}</div></div>
+                      <div><span className="muted">Fields sent</span><div>{r.fields.join(', ')}</div></div>
+                    </div>
+                    <div className="mt hash"><span className="muted">Payload SHA-256</span><div><code>{r.hash}</code></div></div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          <p className="muted" style={{ fontSize: 13 }}>Receipts and alias maps live in this browser's IndexedDB. Nothing here is uploaded.</p>
+          <div className="row mt"><button className="btn" onClick={() => setScreen(analysis ? 'local' : 'upload')}>Back</button></div>
         </section>
       )}
     </div>

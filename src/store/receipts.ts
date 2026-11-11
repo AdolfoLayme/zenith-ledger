@@ -38,3 +38,11 @@ export async function loadAliasMap(id: string): Promise<Map<string, string> | nu
   db.close();
   return row ? new Map(row.entries) : null;
 }
+
+/** "Delete all": every receipt and every stored alias map in this browser. */
+export async function clearLocalData(): Promise<void> {
+  const db = await open();
+  const tx = db.transaction(['receipts', 'aliases'], 'readwrite');
+  await Promise.all([done(tx.objectStore('receipts').clear()), done(tx.objectStore('aliases').clear())]);
+  db.close();
+}

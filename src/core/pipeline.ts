@@ -124,3 +124,26 @@ export async function buildPayload(a: LocalAnalysis): Promise<BuiltPayload> {
     counters: { ...a.counters, rawDescriptionsSent: countRawLeaks(json, a.rows.map((r) => r.description)) },
   };
 }
+
+/** Plain-text overview for the offline on-device summary. Aliases and computed numbers only, never descriptions. */
+export function summaryOverview(a: LocalAnalysis): string {
+  const money = (c: number) => `${c < 0 ? '-' : ''}$${(Math.abs(c) / 100).toFixed(2)}`;
+  const spend = new Map<string, number>();
+  for (const t of a.txns) if (t.amountCents < 0) spend.set(t.category, (spend.get(t.category) ?? 0) - t.amountCents);
+  const top = [...spend].sort((x, y) => y[1] - x[1]).slice(0, 4).map(([c, v]) => `${c} ${money(v)}`).join(', ');
+  const sig = a.signals.map((s) => {
+    switch (s.type) {
+      case 'duplicate': return `possible duplicate: ${s.vendor} ${money(s.amountCents)} on ${s.dates.join(' and ')}`;
+      case 'price_increase': return `price increase: ${s.vendor} ${money(s.fromCents)} to ${money(s.toCents)} on ${s.date}`;
+      case 'outlier': return `unusual ${s.category} expense: ${s.vendor} ${money(s.amountCents)} on ${s.date}`;
+      case 'round_transfer': return `round transfer: ${s.vendor} ${money(s.amountCents)} on ${s.date}`;
+      case 'weekend_spend': return `weekend spend: ${s.vendor} ${money(s.amountCents)} on ${s.date}`;
+    }
+  });
+  return [
+    `Period ${a.period.from} to ${a.period.to}, ${a.rows.length} transactions, ${a.currency}.`,
+    `Money in ${money(a.totals.incomeCents)}, money out ${money(a.totals.expenseCents)}.`,
+    `Top spending categories: ${top || 'none'}.`,
+    `Flagged: ${sig.length ? sig.join('; ') : 'nothing unusual'}.`,
+  ].join('\n');
+}

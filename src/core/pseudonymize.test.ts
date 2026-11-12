@@ -34,3 +34,11 @@ describe('redact / reidentify', () => {
     expect(reidentify('Person_10 and Person_1', map)).toBe('Bob and Ann');
   });
 });
+
+describe('reidentify with a pluralized alias', () => {
+  it('restores "Vendors_C" as Vendor_C and leaves unknown aliases alone', () => {
+    const map = new Map([['Vendor_C', 'CORNER BISTRO'], ['Person_1', 'Ana Ruiz']]);
+    expect(reidentify('Spend at Vendors_C and Vendor_C, paid by Person_1, not Vendors_Z.', map))
+      .toBe('Spend at CORNER BISTRO and CORNER BISTRO, paid by Ana Ruiz, not Vendors_Z.');
+  });
+});

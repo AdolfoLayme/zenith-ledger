@@ -47,5 +47,6 @@ export function redact(text: string, spans: Span[], aliaser: Aliaser): string {
 }
 
 export function reidentify(text: string, map: Map<string, string>): string {
-  return text.replace(/\b(?:Vendor_[A-Z]+|Person_\d+|Card_\d+|IBAN_\d+|Account_\d+|Email_\d+|Phone_\d+|SSN_\d+|EIN_\d+|Link_\d+)\b/g, (a) => map.get(a) ?? a);
+  // models sometimes pluralize an alias ("Vendors_C"): read it as the alias it stands for
+  return text.replace(/\b(Vendor|Person|Card|IBAN|Account|Email|Phone|SSN|EIN|Link)s?_([A-Z]+|\d+)\b/g, (a, kind: string, id: string) => map.get(`${kind}_${id}`) ?? a);
 }

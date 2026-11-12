@@ -54,6 +54,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState('');
   const [error, setError] = useState('');
+  const [nanoNote, setNanoNote] = useState('');
   const [report, setReport] = useState<CloudReport | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [history, setHistory] = useState<Receipt[]>([]);
@@ -101,6 +102,7 @@ export function App() {
 
   /** persons: names the code already knows are in the rows (a receipt's payer), redacted even if the model misses them. */
   async function analyze(rows: StatementRow[], name: string, from: 'csv' | 'photo', persons: string[] = []) {
+    setNanoNote('');
     let entities;
     if (nano === 'ready' && ai.onDevice) {
       try {
@@ -110,7 +112,12 @@ export function App() {
         const found = await ai.onDevice.extract(unique, (d, t) => setReading(`Gemini Nano is reading descriptions on this device: batch ${d + 1} of ${t}`));
         const byText = new Map(unique.map((d, i) => [d, found[i]]));
         entities = descs.map((d) => byText.get(d) ?? { persons: [] });
-      } catch { entities = undefined; }
+      } catch (e) {
+        // keep going safely in strict mode, but say why instead of hiding it
+        console.warn('On-device extraction failed, strict mode:', e);
+        setNanoNote(`Gemini Nano could not finish reading (${(e as Error).message}). This analysis used strict mode.`);
+        entities = undefined;
+      }
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
     const a = analyzeLocally(rows, { entities });
@@ -299,6 +306,7 @@ export function App() {
             <div className="card stat"><b>{analysis.counters.piiReplaced}</b><span>replaced with aliases</span></div>
             <div className="card stat"><b>{analysis.signals.length}</b><span>anomalies flagged</span></div>
           </div>
+          {analysis.mode === 'strict' && nanoNote && <div className="note mt" role="status">{nanoNote}</div>}
           {analysis.mode === 'strict' && <div className="note mt">Strict mode: person names inside free text are not detected without the on-device model, so free-text descriptions are never included in what is sent.</div>}
 
           <div className="grid g2 mt">

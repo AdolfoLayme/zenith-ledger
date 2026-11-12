@@ -10,8 +10,10 @@ export interface CloudReport {
 export interface OnDevice {
   /** Needs a user gesture; the model download can take minutes. */
   init(onProgress: (fraction: number) => void): Promise<void>;
+  /** True when the model is already downloaded, so it can start without a click. */
+  alreadyAvailable(): Promise<boolean>;
   /** One single-turn call per batch of up to 20 descriptions. */
-  extract(descriptions: string[]): Promise<RowEntities[]>;
+  extract(descriptions: string[], onBatch?: (done: number, total: number) => void): Promise<RowEntities[]>;
   /** Short offline summary of an already-redacted overview. */
   summarize(overview: string): Promise<string>;
   /** Reads transaction rows from a JPEG/PNG statement or receipt photo. Raw model output, normalized by the caller. */

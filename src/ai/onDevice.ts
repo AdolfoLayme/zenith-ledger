@@ -17,8 +17,8 @@ const ENTITIES_SCHEMA = {
   type: 'array',
   items: {
     type: 'object',
-    properties: { category: { type: 'string', enum: CATEGORIES }, merchant: { type: 'string' }, persons: { type: 'array', items: { type: 'string' } } },
-    required: ['category', 'merchant', 'persons'],
+    properties: { line: { type: 'integer' }, category: { type: 'string', enum: CATEGORIES }, merchant: { type: 'string' }, persons: { type: 'array', items: { type: 'string' } } },
+    required: ['line', 'category', 'merchant', 'persons'],
   },
 };
 const ROWS_SCHEMA = {
@@ -31,6 +31,7 @@ const ROWS_SCHEMA = {
 };
 
 const ENTITIES_PROMPT = `You label bank statement lines. For each numbered line return one object with:
+"line" (its number),
 "category" (one of ${CATEGORIES.join(', ')}),
 "merchant" (the business name, or "" if none) and "persons" (full names of people, [] if none).
 Answer with a JSON array only, one object per line, in order.
@@ -41,6 +42,19 @@ const ROWS_PROMPT = `This image is a bank statement or a store receipt. Return a
 Each item: "date" (YYYY-MM-DD or MM/DD/YYYY as printed), "description" (the full line text exactly as printed, including any names, card or account numbers),
 "amount" (as printed; money going out is negative, money coming in is positive).
 For a receipt return a single item: the store name and printed card details as description, and minus the total as amount.`;
+
+const CREATE_OPTIONS = {
+  expectedInputs: [{ type: 'text' as const, languages: ['en'] }, { type: 'image' as const }],
+  expectedOutputs: [{ type: 'text' as const, languages: ['en'] }],
+};
+
+/** Keeps only what the line really contains: a merchant or a person the model names must appear in the text. */
+export function acceptEntities(text: string, o: Record<string, unknown>): RowEntities {
+  const has = (v: string) => text.toLowerCase().includes(v.trim().toLowerCase());
+  const merchant = typeof o.merchant === 'string' && o.merchant.trim() && has(o.merchant) ? o.merchant.trim() : undefined;
+  const persons = Array.isArray(o.persons) ? o.persons.filter((p): p is string => typeof p === 'string' && !!p.trim() && has(p)) : [];
+  return { category: typeof o.category === 'string' ? o.category : undefined, merchant, persons };
+}
 
 export function isNanoAvailable(): boolean {
   return typeof (globalThis as { LanguageModel?: unknown }).LanguageModel !== 'undefined';
@@ -65,7 +79,11 @@ export function createOnDevice(): OnDevice | null {
   const model = (key: string, promptOptions?: LanguageModelPromptOptions) => {
     let m = models.get(key);
     if (!m) {
-      m = getGenerativeModel(getFirebase().ai, { mode: InferenceMode.ONLY_ON_DEVICE, onDeviceParams: promptOptions ? { promptOptions } : undefined });
+      m = getGenerativeModel(getFirebase().ai, {
+        mode: InferenceMode.ONLY_ON_DEVICE,
+        // English in and out, images allowed: declared up front so Chrome can check the output language
+        onDeviceParams: { createOptions: CREATE_OPTIONS, ...(promptOptions ? { promptOptions } : {}) },
+      });
       models.set(key, m);
     }
     return m;
@@ -80,19 +98,20 @@ export function createOnDevice(): OnDevice | null {
     async init(onProgress) {
       await model('plain').initializeDeviceModel(onProgress);
     },
-    async extract(descriptions) {
+    async alreadyAvailable() {
+      const lm = (globalThis as { LanguageModel?: { availability(o?: unknown): Promise<string> } }).LanguageModel;
+      try { return (await lm?.availability(CREATE_OPTIONS)) === 'available'; } catch { return false; }
+    },
+    async extract(descriptions, onBatch) {
       const out: RowEntities[] = [];
-      for (const batch of chunk(descriptions)) {
+      const batches = chunk(descriptions);
+      for (const [n, batch] of batches.entries()) {
+        onBatch?.(n, batches.length);
         const parsed = parseJson(await run('entities', ENTITIES_PROMPT + batch.map((d, i) => `${i + 1}. ${d}`).join('\n'), { responseConstraint: ENTITIES_SCHEMA }));
-        const arr = Array.isArray(parsed) ? parsed : [];
-        batch.forEach((_, i) => {
-          const o = (arr[i] ?? {}) as Record<string, unknown>;
-          out.push({
-            category: typeof o.category === 'string' ? o.category : undefined,
-            merchant: typeof o.merchant === 'string' && o.merchant ? o.merchant : undefined,
-            persons: Array.isArray(o.persons) ? o.persons.filter((p): p is string => typeof p === 'string') : [],
-          });
-        });
+        const arr = (Array.isArray(parsed) ? parsed : []) as Record<string, unknown>[];
+        // match answers by their line number, not by position: the model sometimes skips or reorders lines
+        const byLine = new Map(arr.filter((o) => typeof o?.line === 'number').map((o) => [o.line as number, o]));
+        batch.forEach((text, i) => out.push(acceptEntities(text, byLine.get(i + 1) ?? (byLine.size ? {} : arr[i] ?? {}))));
       }
       return out;
     },

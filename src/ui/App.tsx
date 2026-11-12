@@ -51,6 +51,7 @@ export function App() {
   const [nano, setNano] = useState<Nano>(ai.onDevice ? 'idle' : 'unavailable');
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState('');
   const [error, setError] = useState('');
   const [report, setReport] = useState<CloudReport | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -74,6 +75,12 @@ export function App() {
       .catch(() => setSummary({ state: 'error', text: '' }));
   }, [online, analysis, nano, ai.onDevice, summary.state]);
 
+  // A model downloaded on an earlier visit needs no click: start it right away.
+  useEffect(() => {
+    if (!ai.onDevice) return;
+    ai.onDevice.alreadyAvailable().then((yes) => { if (yes) enableNano(); }).catch(() => {});
+  }, [ai.onDevice]);
+
   async function enableNano() {
     if (!ai.onDevice) return;
     setNano('downloading');
@@ -87,7 +94,14 @@ export function App() {
       const rows = await read();
       let entities;
       if (nano === 'ready' && ai.onDevice) {
-        try { entities = await ai.onDevice.extract(rows.map((r) => r.description)); } catch { entities = undefined; }
+        try {
+          // recurring charges repeat the same text: the model reads each distinct description once
+          const descs = rows.map((r) => r.description);
+          const unique = [...new Set(descs)];
+          const found = await ai.onDevice.extract(unique, (d, t) => setReading(`Gemini Nano is reading descriptions on this device: batch ${d + 1} of ${t}`));
+          const byText = new Map(unique.map((d, i) => [d, found[i]]));
+          entities = descs.map((d) => byText.get(d) ?? { persons: [] });
+        } catch { entities = undefined; }
       }
       const a = analyzeLocally(rows, { entities });
       setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
@@ -95,7 +109,7 @@ export function App() {
       saveAliasMap(name, a.aliases).catch(() => {});
       setScreen('local');
     } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setReading(''); }
   }
 
   const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
@@ -160,6 +174,7 @@ export function App() {
             <p className="droptitle">Drop a CSV statement, or a photo of a statement or receipt</p>
             <p>CSV columns: date, description, amount. Photos (JPEG or PNG) are read by the on-device model only.</p>
             <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>
+            {reading && <p className="muted" role="status">{reading}</p>}
             <input ref={fileRef} type="file" accept={['.csv', 'text/csv', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
             <div className="samples">
               <span className="muted">Or try synthetic samples:</span>

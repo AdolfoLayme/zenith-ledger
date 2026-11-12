@@ -11,7 +11,10 @@ export const fakeOnDevice: OnDevice = {
   async init(onProgress) {
     for (const f of [0.2, 0.5, 0.8, 1]) { onProgress(f); await new Promise((r) => setTimeout(r, 40)); }
   },
-  async extract(descriptions) {
+  // the stand-in always starts "not downloaded" so the demo shows the Enable click
+  async alreadyAvailable() { return false; },
+  async extract(descriptions, onBatch) {
+    onBatch?.(1, 1);
     return descriptions.map((d): RowEntities => {
       const person = NAME.exec(d)?.[1];
       return { persons: person ? [person] : [], merchant: guessMerchant(d, detectPii(d)), category: undefined };

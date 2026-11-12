@@ -4,7 +4,7 @@ import type { OnDevice } from './types';
 
 const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' });
 const device = (rows: unknown): OnDevice & { readImage: ReturnType<typeof vi.fn> } => ({
-  init: vi.fn(), extract: vi.fn(), summarize: vi.fn(), readImage: vi.fn(async () => rows),
+  init: vi.fn(), alreadyAvailable: vi.fn(async () => true), extract: vi.fn(), summarize: vi.fn(), readImage: vi.fn(async () => rows),
 });
 
 describe('statement photos', () => {

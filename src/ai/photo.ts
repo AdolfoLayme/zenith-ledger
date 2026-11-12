@@ -84,11 +84,15 @@ export function receiptFromModel(raw: unknown): PhotoRead {
 }
 
 /**
- * A long number after "card", or any 13-19 digit run, that fails the Luhn check: most likely a card number the model
- * misread (Nano often drops a digit). The card detector skips it, so the review screen asks the user to check it.
+ * A card number the model probably misread (Nano often drops digits): after "card", any 8-19 digit run that is not
+ * a Luhn-valid 13-19 digit number; elsewhere, a 13-19 digit run that fails Luhn. The card detector skips these,
+ * so the review screen asks the user to check them.
  */
 export function misreadCard(description: string): boolean {
-  return [...description.matchAll(/(card\W*)?(?<![\dA-Za-z])(\d{12,19})(?![\dA-Za-z])/gi)].some((m) => (m[1] || m[2].length >= 13) && !luhn(m[2]));
+  return [...description.matchAll(/(card\W*)?(?<![\dA-Za-z])(\d{8,19})(?![\dA-Za-z])/gi)].some(([, card, digits]) => {
+    const valid = digits.length >= 13 && luhn(digits);
+    return card ? !valid : digits.length >= 13 && !valid;
+  });
 }
 
 /** Rows as the user left them on the review screen. Anything still invalid is named, not silently dropped. */

@@ -165,6 +165,7 @@ describe('card numbers the model may have misread', () => {
   it('a card number with a digit missing is flagged, so the user fixes it before it slips past the card detector', () => {
     expect(misreadCard('POS DEBIT BRIGHTSIDE CAFE card 411111111111111')).toBe(true);
     expect(misreadCard('POS DEBIT BRIGHTSIDE CAFE card 411111111111')).toBe(true);
+    expect(misreadCard('POS DEBIT BRIGHTSIDE CAFE card 41111111111')).toBe(true);
   });
   it('a valid card number, an account number or a short reference is not flagged', () => {
     expect(misreadCard('POS DEBIT BRIGHTSIDE CAFE card 4111111111111111')).toBe(false);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAi } from '../ai';
-import { PHOTO_TYPES, readStatementPhoto } from '../ai/photo';
+import { misreadCard, PHOTO_TYPES, PhotoNeedsOnDeviceError, readPhoto, rowsFromReview, type PhotoKind } from '../ai/photo';
 import type { CloudReport } from '../ai/types';
 import { parseStatement } from '../core/csv';
 import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
@@ -10,7 +10,8 @@ import type { Signal } from '../core/analytics';
 import { clearLocalData, listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
 import { usd } from './format';
 
-type Screen = 'upload' | 'local' | 'firewall' | 'report' | 'receipts';
+type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts';
+type ReviewRow = { date: string; description: string; amount: string };
 type Nano = 'idle' | 'downloading' | 'ready' | 'unavailable';
 
 const STEPS: [Screen, string][] = [['upload', 'Statement'], ['local', 'Local analysis'], ['firewall', 'Privacy Firewall'], ['report', 'Audit report']];
@@ -61,6 +62,10 @@ export function App() {
   const [source, setSource] = useState<'csv' | 'photo'>('csv');
   const [summary, setSummary] = useState<{ state: 'idle' | 'working' | 'done' | 'error'; text: string }>({ state: 'idle', text: '' });
   const [confirmClear, setConfirmClear] = useState(false);
+  // a dropped photo waits here until the user says whether it is a statement or a receipt
+  const [pending, setPending] = useState<{ image: Blob; name: string } | null>(null);
+  // rows read from a photo, editable until the user confirms them
+  const [review, setReview] = useState<{ name: string; persons: string[]; warning: string; rows: ReviewRow[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshHistory = () => listReceipts().then(setHistory).catch(() => {});
@@ -88,40 +93,57 @@ export function App() {
     catch (e) { setNano('unavailable'); setError(`On-device model could not start: ${(e as Error).message}`); }
   }
 
-  async function load(read: () => Promise<StatementRow[]>, name: string, from: 'csv' | 'photo') {
+  async function run(task: () => Promise<void>) {
     setError(''); setBusy(true);
-    try {
-      const rows = await read();
-      let entities;
-      if (nano === 'ready' && ai.onDevice) {
-        try {
-          // recurring charges repeat the same text: the model reads each distinct description once
-          const descs = rows.map((r) => r.description);
-          const unique = [...new Set(descs)];
-          const found = await ai.onDevice.extract(unique, (d, t) => setReading(`Gemini Nano is reading descriptions on this device: batch ${d + 1} of ${t}`));
-          const byText = new Map(unique.map((d, i) => [d, found[i]]));
-          entities = descs.map((d) => byText.get(d) ?? { persons: [] });
-        } catch { entities = undefined; }
-      }
-      const a = analyzeLocally(rows, { entities });
-      setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
-      setSummary({ state: 'idle', text: '' });
-      saveAliasMap(name, a.aliases).catch(() => {});
-      setScreen('local');
-    } catch (e) { setError((e as Error).message); }
+    try { await task(); } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); setReading(''); }
   }
 
+  /** persons: names the code already knows are in the rows (a receipt's payer), redacted even if the model misses them. */
+  async function analyze(rows: StatementRow[], name: string, from: 'csv' | 'photo', persons: string[] = []) {
+    let entities;
+    if (nano === 'ready' && ai.onDevice) {
+      try {
+        // recurring charges repeat the same text: the model reads each distinct description once
+        const descs = rows.map((r) => r.description);
+        const unique = [...new Set(descs)];
+        const found = await ai.onDevice.extract(unique, (d, t) => setReading(`Gemini Nano is reading descriptions on this device: batch ${d + 1} of ${t}`));
+        const byText = new Map(unique.map((d, i) => [d, found[i]]));
+        entities = descs.map((d) => byText.get(d) ?? { persons: [] });
+      } catch { entities = undefined; }
+    }
+    if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
+    const a = analyzeLocally(rows, { entities });
+    setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
+    setSummary({ state: 'idle', text: '' });
+    saveAliasMap(name, a.aliases).catch(() => {});
+    setScreen('local');
+  }
+
+  const load = (read: () => Promise<StatementRow[]>, name: string) => run(async () => analyze(await read(), name, 'csv'));
+
   const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
-  const loadSample = (n: 'q3' | 'q4') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`, 'csv');
-  // A photo is only ever read by the on-device model; without it, readStatementPhoto refuses before anything happens.
-  const loadPhoto = (image: Blob, name: string) => load(() => readStatementPhoto(image, ai.onDevice, nano === 'ready'), name, 'photo');
-  const loadSamplePhoto = async (name: string) => loadPhoto(await (await sample(name)).blob(), name);
+  const loadSample = (n: 'q3' | 'q4') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
+  // A photo is only ever read by the on-device model; without it, readPhoto refuses before anything happens.
+  const readPhotoAs = (photo: { image: Blob; name: string }, kind: PhotoKind) => run(async () => {
+    setReading(`Gemini Nano is reading the ${kind} on this device…`);
+    const r = await readPhoto(photo.image, kind, ai.onDevice, nano === 'ready');
+    setPending(null);
+    setReview({ name: photo.name, persons: r.persons, warning: r.warning, rows: r.rows.map((x) => ({ date: x.date, description: x.description, amount: (x.amountCents / 100).toFixed(2) })) });
+    setScreen('review');
+  });
+  const loadSamplePhoto = async (name: string, kind: PhotoKind) => readPhotoAs({ image: await (await sample(name)).blob(), name }, kind);
   const onFile = async (f?: File) => {
     if (!f) return;
-    if (f.type.startsWith('image/')) await loadPhoto(f, f.name);
-    else await load(async () => parseStatement(await f.text()), f.name, 'csv');
+    setPending(null);
+    if (!f.type.startsWith('image/')) return load(async () => parseStatement(await f.text()), f.name);
+    if (nano !== 'ready' || !ai.onDevice) return setError(new PhotoNeedsOnDeviceError().message);
+    setError('');
+    setPending({ image: f, name: f.name });
   };
+
+  const editRow = (i: number, k: keyof ReviewRow, v: string) => setReview((r) => r && { ...r, rows: r.rows.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
+  const confirmReview = () => review && run(() => analyze(rowsFromReview(review.rows), review.name, 'photo', review.persons));
 
   async function deleteAll() {
     await clearLocalData();
@@ -148,7 +170,7 @@ export function App() {
   }
 
   const real = (s: string) => (analysis ? reidentify(s, analysis.aliases) : s);
-  const idx = STEPS.findIndex(([k]) => k === screen);
+  const idx = STEPS.findIndex(([k]) => k === (screen === 'review' ? 'upload' : screen));
 
   return (
     <div className="shell">
@@ -173,15 +195,24 @@ export function App() {
             onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]); }}>
             <p className="droptitle">Drop a CSV statement, or a photo of a statement or receipt</p>
             <p>CSV columns: date, description, amount. Photos (JPEG or PNG) are read by the on-device model only.</p>
-            <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>
+            {pending ? (
+              <div className="choose" role="group" aria-label="Photo type">
+                <p><b>What is in {pending.name}?</b> The on-device model reads each kind differently.</p>
+                <div className="row">
+                  <button className="btn primary" onClick={() => readPhotoAs(pending, 'statement')} disabled={busy}>Statement</button>
+                  <button className="btn primary" onClick={() => readPhotoAs(pending, 'receipt')} disabled={busy}>Receipt</button>
+                  <button className="btn" onClick={() => setPending(null)} disabled={busy}>Cancel</button>
+                </div>
+              </div>
+            ) : <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>}
             {reading && <p className="muted" role="status">{reading}</p>}
             <input ref={fileRef} type="file" accept={['.csv', 'text/csv', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
             <div className="samples">
               <span className="muted">Or try synthetic samples:</span>
               <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
               <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
-              <button className="link" onClick={() => loadSamplePhoto('statement-photo.png')} disabled={busy}>Statement photo</button>
-              <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png')} disabled={busy}>Receipt photo</button>
+              <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>
+              <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>
             </div>
           </div>
           <div className="card mt">
@@ -203,6 +234,41 @@ export function App() {
           </div>
           {ai.mode === 'demo' && <p className="muted mt" style={{ fontSize: 13 }}>Demo mode: scripted stand-ins replace Gemini. The privacy logic is the real code.</p>}
           {ai.mode === 'none' && <p className="muted mt" style={{ fontSize: 13 }}>Firebase is not configured, so deep analysis is unavailable. Local analysis works.</p>}
+        </section>
+      )}
+
+      {screen === 'review' && review && (
+        <section>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div><h2>Check what was read</h2><span className="muted">{review.name} · read on this device by Gemini Nano. Fix anything it misread, then continue.</span></div>
+            <span className="badge"><span className="dot" />On this device · nothing sent</span>
+          </div>
+          {review.warning && <div className="note warn mt" data-testid="review-warning">{review.warning}</div>}
+          <div className="tablewrap mt">
+            <table className="review">
+              <thead><tr><th>Date</th><th>Description</th><th className="num">Amount</th><th><span className="sr">Remove</span></th></tr></thead>
+              <tbody>
+                {review.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td><input className="mono" aria-label={`Date, row ${i + 1}`} value={r.date} onChange={(e) => editRow(i, 'date', e.target.value)} /></td>
+                    <td>
+                      <input aria-label={`Description, row ${i + 1}`} value={r.description} onChange={(e) => editRow(i, 'description', e.target.value)} />
+                      {misreadCard(r.description) && <small className="hint">This looks like a card number with a wrong or missing digit. Check it against the photo: an invalid card number is not recognized as sensitive.</small>}
+                    </td>
+                    <td className="num"><input className="mono num" aria-label={`Amount, row ${i + 1}`} value={r.amount} onChange={(e) => editRow(i, 'amount', e.target.value)} /></td>
+                    <td><button className="link" aria-label={`Remove row ${i + 1}`} onClick={() => setReview({ ...review, rows: review.rows.filter((_, j) => j !== i) })}>Remove</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn small mt" onClick={() => setReview({ ...review, rows: [...review.rows, { date: '', description: '', amount: '' }] })}>Add a row</button>
+          <p className="muted" style={{ fontSize: 13 }}>Dates as YYYY-MM-DD, amounts with a minus sign for money going out.</p>
+          <div className="row mt2">
+            <button className="btn" onClick={() => setScreen('upload')}>Back</button>
+            <button className="btn primary" onClick={confirmReview} disabled={busy}>{busy ? 'Reading…' : 'Looks right'}</button>
+          </div>
+          {reading && <p className="muted" role="status">{reading}</p>}
         </section>
       )}
 

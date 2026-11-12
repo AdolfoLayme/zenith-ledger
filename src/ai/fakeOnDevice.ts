@@ -25,11 +25,14 @@ export const fakeOnDevice: OnDevice = {
     const items = flagged.replace(/^Flagged: |\.$/g, '').split('; ');
     return `On-device summary (scripted): ${period} ${money} ${items.length} item(s) flagged, starting with ${items[0]}.`;
   },
-  async readImage(image) {
-    // The bundled synthetic photos carry their rows in a PNG text chunk; there is no OCR here.
-    const rows = readPngText(new Uint8Array(await image.arrayBuffer()), 'zenith-rows');
+  async readImage(image, kind) {
+    // The bundled synthetic photos carry their answers in PNG text chunks; there is no OCR here.
+    const png = new Uint8Array(await image.arrayBuffer());
+    const rows = readPngText(png, 'zenith-rows');
     if (!rows) throw new Error('Demo mode can only read the bundled sample photos. Real photos need Gemini Nano.');
     await new Promise((r) => setTimeout(r, 300));
-    return JSON.parse(rows);
+    if (kind === 'receipt') return JSON.parse(readPngText(png, 'zenith-fields') ?? '{}');
+    const items = JSON.parse(rows) as { date: string; description: string; amount: string }[];
+    return { visibleRows: items.length, rows: items.map((r, i) => ({ line: i + 1, text: `${r.date} ${r.description} ${r.amount}` })) };
   },
 };

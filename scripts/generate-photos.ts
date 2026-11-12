@@ -1,5 +1,5 @@
 // Renders two synthetic "photos" (a printed statement page and a cafe receipt) for the demo.
-// Every name, number and address is fake. Each PNG also carries its rows in a tEXt chunk so the
+// Every name, number and address is fake. Each PNG also carries its rows (and the receipt its fields) in tEXt chunks so the
 // scripted on-device stand-in (VITE_DEMO_FAKE_AI=1) can "read" it; real Gemini Nano reads the pixels.
 // Usage: pnpm photos   (needs a Chromium-based browser; set BROWSER_PATH, default /usr/bin/brave)
 import { writeFileSync } from 'node:fs';
@@ -25,6 +25,9 @@ const statement: Row[] = [
 const receipt: Row[] = [
   { date: '09/03/2025', description: 'BRIGHTSIDE CAFE VISA **** 1111 paid by Emily Carter emily.carter@gmail.com', amount: '-18.75' },
 ];
+
+// What a receipt reader should return: fields, from which the app builds the single row above.
+const receiptFields = { merchant: 'BRIGHTSIDE CAFE', date: '09/03/2025', total: '18.75', cardLast4: '1111', payerName: 'Emily Carter', payerEmail: 'emily.carter@gmail.com' };
 
 const money = (s: string) => {
   const n = Number(s);
@@ -75,7 +78,9 @@ try {
     await page.setViewportSize({ width: w, height: h });
     await page.setContent(html);
     const png = await page.screenshot({ type: 'png' });
-    writeFileSync(`public/samples/${name}.png`, addPngText(new Uint8Array(png), 'zenith-rows', JSON.stringify(rows)));
+    let out = addPngText(new Uint8Array(png), 'zenith-rows', JSON.stringify(rows));
+    if (name === 'receipt-photo') out = addPngText(out, 'zenith-fields', JSON.stringify(receiptFields));
+    writeFileSync(`public/samples/${name}.png`, out);
     console.log(`public/samples/${name}.png (${rows.length} rows)`);
   }
 } finally {

@@ -6,6 +6,8 @@ export interface CloudReport {
   narrative: string;
 }
 
+export type PhotoKind = 'statement' | 'receipt';
+
 /** Runs on the device only. Sees raw descriptions, so it must never have a cloud path. */
 export interface OnDevice {
   /** Needs a user gesture; the model download can take minutes. */
@@ -16,8 +18,8 @@ export interface OnDevice {
   extract(descriptions: string[], onBatch?: (done: number, total: number) => void): Promise<RowEntities[]>;
   /** Short offline summary of an already-redacted overview. */
   summarize(overview: string): Promise<string>;
-  /** Reads transaction rows from a JPEG/PNG statement or receipt photo. Raw model output, normalized by the caller. */
-  readImage(image: Blob): Promise<unknown>;
+  /** Reads a JPEG/PNG photo of the given kind. Raw model output, validated by the caller (see photo.ts). */
+  readImage(image: Blob, kind: PhotoKind): Promise<unknown>;
 }
 
 /** Receives only the payload the user approved in the Privacy Firewall. */

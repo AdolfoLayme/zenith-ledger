@@ -16,6 +16,11 @@ for (const [name, viewport] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.getByRole('button', { name: 'Enable on-device AI' }).click();
     await expect(page.getByText('Active', { exact: true })).toBeVisible();
     await page.getByTestId('file').setInputFiles('public/samples/statement-photo.png');
+    await shot('1c-photo-kind');
+    await page.getByRole('group', { name: 'Photo type' }).getByRole('button', { name: 'Statement' }).click();
+    await expect(page.getByRole('heading', { name: 'Check what was read' })).toBeVisible();
+    await shot('2a-photo-review');
+    await page.getByRole('button', { name: 'Looks right' }).click();
     await expect(page.getByText('photo read on this device by Gemini Nano')).toBeVisible();
     await shot('2b-local-photo');
     await page.getByRole('button', { name: 'Zenith Ledger' }).click();

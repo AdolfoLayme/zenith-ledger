@@ -21,14 +21,18 @@ const ENTITIES_SCHEMA = {
     required: ['line', 'category', 'merchant', 'persons'],
   },
 };
-const ROWS_SCHEMA = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: { date: { type: 'string' }, description: { type: 'string' }, amount: { type: 'string' } },
-    required: ['date', 'description', 'amount'],
+// Statement: each printed row copied as one line of text; photo.ts splits and validates date, description and amount.
+const STATEMENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    visibleRows: { type: 'integer' },
+    rows: { type: 'array', items: { type: 'object', properties: { line: { type: 'integer' }, text: { type: 'string' } }, required: ['line', 'text'] } },
   },
+  required: ['visibleRows', 'rows'],
 };
+// Receipt: fields, not rows, so line items never turn into transactions; photo.ts builds the one row.
+const RECEIPT_FIELDS = ['merchant', 'date', 'total', 'cardLast4', 'payerName', 'payerEmail'];
+const RECEIPT_SCHEMA = { type: 'object', properties: Object.fromEntries(RECEIPT_FIELDS.map((f) => [f, { type: 'string' }])), required: RECEIPT_FIELDS };
 
 const ENTITIES_PROMPT = `You label bank statement lines. For each numbered line return one object with:
 "line" (its number),
@@ -38,10 +42,21 @@ Answer with a JSON array only, one object per line, in order.
 
 `;
 
-const ROWS_PROMPT = `This image is a bank statement or a store receipt. Return a JSON array of transactions.
-Each item: "date" (YYYY-MM-DD or MM/DD/YYYY as printed), "description" (the full line text exactly as printed, including any names, card or account numbers),
-"amount" (as printed; money going out is negative, money coming in is positive).
-For a receipt return a single item: the store name and printed card details as description, and minus the total as amount.`;
+// Both prompts were compared against the sample photos with Gemini Nano in Chrome (2026-11-12).
+const STATEMENT_PROMPT = `This image is a bank statement. First count the transaction rows in its table (not the header) as "visibleRows".
+Then transcribe every row in "rows", top to bottom. Each row: "line" (1 for the first row under the header, then 2, 3...) and
+"text": everything printed on that one horizontal row, left to right, exactly as printed: the date, the full description with every digit of any card or account number, and the amount at the right end with its minus sign.`;
+
+const RECEIPT_PROMPT = `This image is a store receipt. Read these fields from it:
+"merchant": the store name printed at the top;
+"date": the purchase date as printed;
+"total": the final TOTAL amount as printed (not a line item, not tax or tip);
+"cardLast4": the last 4 digits of the payment card, "" if none is printed;
+"payerName": the customer or cardholder name if printed (for example after "Paid by" or "Cardholder"), "" if none;
+"payerEmail": any email address printed on the receipt, "" if none.
+Copy names, digits and the email exactly as printed.`;
+
+const PHOTO = { statement: [STATEMENT_PROMPT, STATEMENT_SCHEMA], receipt: [RECEIPT_PROMPT, RECEIPT_SCHEMA] } as const;
 
 const CREATE_OPTIONS = {
   expectedInputs: [{ type: 'text' as const, languages: ['en'] }, { type: 'image' as const }],
@@ -118,8 +133,9 @@ export function createOnDevice(): OnDevice | null {
     async summarize(overview) {
       return (await run('plain', `Summarize this already-anonymized bookkeeping overview in 3 short sentences. Keep aliases like Vendor_A as they are.\n${overview}`)).trim();
     },
-    async readImage(image) {
-      return parseJson(await run('rows', [ROWS_PROMPT, await toInlinePart(image)], { responseConstraint: ROWS_SCHEMA }));
+    async readImage(image, kind) {
+      const [prompt, schema] = PHOTO[kind];
+      return parseJson(await run(kind, [prompt, await toInlinePart(image)], { responseConstraint: schema }));
     },
   };
 }

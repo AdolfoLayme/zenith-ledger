@@ -101,3 +101,13 @@ ol.receipts .muted, .card .grid .muted { font-size: 12.5px; }
   .tablewrap td:nth-child(3) { grid-area: 3 / 1; }
   .tablewrap td:nth-child(4) { grid-area: 1 / 2; }
 }
+.choose p { color: var(--text); }
+.choose .row { justify-content: center; }
+table.review td { padding: 6px 8px; vertical-align: middle; }
+table.review input { width: 100%; font: inherit; font-size: 13.5px; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: #fff; }
+table.review input.mono { font-family: ui-monospace, 'JetBrains Mono', Menlo, monospace; font-size: 12.5px; word-break: normal; }
+table.review td:first-child { width: 132px; } table.review td.num { width: 120px; } table.review td:last-child { width: 1%; }
+table.review input.num { text-align: right; }
+table.review input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+table.review .hint { display: block; margin-top: 4px; color: var(--warn); font-size: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

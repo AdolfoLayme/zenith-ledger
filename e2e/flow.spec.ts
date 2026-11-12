@@ -83,9 +83,14 @@ test('offline: local analysis keeps working, Nano writes a summary, sending is d
   await expect(page.getByRole('button', { name: 'Approve & send' })).toBeEnabled();
 });
 
-test('statement and receipt photos are read on device and go through the same pipeline', async ({ page }) => {
+test('statement and receipt photos: pick the kind, check the rows read on device, then the same pipeline', async ({ page }) => {
   await start(page, true);
   await upload(page, 'public/samples/statement-photo.png');
+  await page.getByRole('group', { name: 'Photo type' }).getByRole('button', { name: 'Statement' }).click();
+  await expect(page.getByRole('heading', { name: 'Check what was read' })).toBeVisible();
+  await expect(page.locator('table.review tbody tr')).toHaveCount(11);
+  await expect(page.getByLabel('Amount, row 8')).toHaveValue('-236.40');
+  await page.getByRole('button', { name: 'Looks right' }).click();
   await expect(page.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
   await expect(page.getByText('photo read on this device by Gemini Nano')).toBeVisible();
   await expect(page.locator('.stat b').first()).toHaveText('11');
@@ -94,10 +99,35 @@ test('statement and receipt photos are read on device and go through the same pi
   const json = (await page.locator('pre.json').textContent()) ?? '';
   for (const v of ['4111111111111111', 'marcus.lee@mail.example', 'Hans Meyer', 'GB82WEST12345698765432', 'CLOUDNEST']) expect(json).not.toContain(v);
 
+  // a receipt becomes one payment built from its fields; the payer's name and email are redacted
   await page.getByRole('button', { name: 'Zenith Ledger' }).click();
   await upload(page, 'public/samples/receipt-photo.png');
+  await page.getByRole('group', { name: 'Photo type' }).getByRole('button', { name: 'Receipt' }).click();
+  await expect(page.locator('table.review tbody tr')).toHaveCount(1);
+  await expect(page.getByLabel('Description, row 1')).toHaveValue('BRIGHTSIDE CAFE card ****1111 paid by Emily Carter emily.carter@gmail.com');
+  await expect(page.getByLabel('Amount, row 1')).toHaveValue('-18.75');
+  await page.getByLabel('Amount, row 1').fill('-19.75');
+  await page.getByRole('button', { name: 'Looks right' }).click();
   await expect(page.locator('.stat b').first()).toHaveText('1');
   await expect(page.locator('mark', { hasText: 'emily.carter@gmail.com' })).toBeVisible();
+  await expect(page.locator('mark', { hasText: 'Emily Carter' })).toBeVisible();
+  await expect(page.locator('td.num', { hasText: '-$19.75' })).toBeVisible();
+});
+
+test('review screen: a misread card number is flagged and a row left invalid is named, not dropped', async ({ page }) => {
+  await start(page, true);
+  await page.getByRole('button', { name: 'Statement photo' }).click();
+  await expect(page.getByRole('heading', { name: 'Check what was read' })).toBeVisible();
+  await expect(page.locator('.hint')).toHaveCount(0);
+  await page.getByLabel('Description, row 2').fill('POS DEBIT BRIGHTSIDE CAFE card 411111111111111');
+  await expect(page.locator('.hint')).toHaveCount(1);
+  await page.getByLabel('Date, row 3').fill('Sep 4');
+  await page.getByRole('button', { name: 'Looks right' }).click();
+  await expect(page.getByRole('alert')).toContainText('Row 3');
+  await expect(page.getByRole('heading', { name: 'Check what was read' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove row 3' }).click();
+  await page.getByRole('button', { name: 'Looks right' }).click();
+  await expect(page.locator('.stat b').first()).toHaveText('10');
 });
 
 test('without on-device AI a photo is refused and nothing is sent', async ({ page }) => {

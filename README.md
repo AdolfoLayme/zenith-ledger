@@ -2,6 +2,8 @@
 
 Audit your books with AI without your bank data ever leaving your laptop.
 
+**Live demo:** https://zenith-ledger-app.web.app (desktop Chrome for Gemini Nano; any browser runs the strict mode)
+
 Zenith Ledger takes a bank statement (CSV, or a photo of a statement or receipt), finds and replaces the sensitive parts in your browser, computes the anomalies with plain deterministic code, and shows you the exact JSON that would go to the cloud. Only after you click **Approve & send** does Gemini write the audit narrative and the questions for your accountant. The names come back as aliases (`Vendor_A`) and your browser turns them back into real names locally.
 
 ## Why hybrid
@@ -33,7 +35,7 @@ VITE_DEMO_FAKE_AI=1 pnpm dev
 
 Real Gemini: copy `.env.example` to `.env`, fill in your Firebase web config, enable Firebase AI Logic and App Check in the console. In development the App Check debug provider is used; register the debug token printed in the browser console.
 
-Gemini Nano: desktop Chrome 139 or newer, enable `chrome://flags/#prompt-api-for-gemini-nano-multimodal-input`, restart, then click **Enable on-device AI** in the app (the model download can take a few minutes and needs a user click).
+Gemini Nano: desktop Chrome 139 or newer. Click **Enable on-device AI** in the app; the first download (about 4 GB) takes a few minutes and needs that click. Once downloaded, the app starts the model by itself on later visits. If the button reports the model as unavailable, enable `chrome://flags/#prompt-api-for-gemini-nano-multimodal-input` and restart Chrome. Tested on Chrome 157 (Linux).
 
 Other commands:
 
@@ -44,11 +46,11 @@ Other commands:
 
 ## Deploy to Firebase Hosting
 
-`firebase.json` serves `dist/` as a single-page app. `.firebaserc` holds a placeholder project id.
+`firebase.json` serves `dist/` as a single-page app. `.firebaserc` points at the demo project (`zenith-ledger-app`); use your own id for your deploy.
 
 1. Create a Firebase project, enable **AI Logic** (Gemini Developer API) and register a web app. App Check is enforced for AI Logic: create a reCAPTCHA Enterprise key and register it as the App Check provider for the web app.
 2. Put the web config and the reCAPTCHA Enterprise site key in `.env` (see `.env.example`), with `VITE_DEMO_FAKE_AI=0`.
-3. Replace `your-firebase-project-id` in `.firebaserc` with your project id.
+3. Put your project id in `.firebaserc`.
 4. Build and deploy:
 
 ```

@@ -4,12 +4,11 @@ import { misreadCard, PHOTO_TYPES, PhotoNeedsOnDeviceError, readPhoto, rowsFromR
 import type { CloudReport } from '../ai/types';
 import { useConfig } from '../config/useConfig';
 import { parseStatement } from '../core/csv';
+import { buildDossiers, type AlertDecision, type DecisionStatus, type EvidenceDossier } from '../core/dossier';
 import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
-import type { Signal } from '../core/analytics';
-import type { IntegrityIssue } from '../core/integrity';
-import { clearLocalData, listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
+import { clearLocalData, listDecisions, listReceipts, saveAliasMap, saveDecision, saveDossiers, saveReceipt, type Receipt } from '../store/receipts';
 import { openReceiptVault } from '../vault/firestore';
 import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
@@ -75,7 +74,10 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   // a dropped photo waits here until the user says whether it is a statement or a receipt
   const [pending, setPending] = useState<{ image: Blob; name: string } | null>(null);
   // rows read from a photo, editable until the user confirms them
-  const [review, setReview] = useState<{ name: string; persons: string[]; warning: string; rows: ReviewRow[] } | null>(null);
+  const [review, setReview] = useState<{ name: string; persons: string[]; warning: string; rows: ReviewRow[]; initialRows: ReviewRow[] } | null>(null);
+  const [dossiers, setDossiers] = useState<EvidenceDossier[]>([]);
+  const [openDossierId, setOpenDossierId] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<Record<string, AlertDecision>>({});
   const [vaultBusy, setVaultBusy] = useState(false);
   const [vaultOn, setVaultOn] = useState(false);
   const [vaultNote, setVaultNote] = useState('');
@@ -83,7 +85,11 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshHistory = () => listReceipts().then(setHistory).catch(() => {});
-  useEffect(() => { refreshHistory(); }, [receipt]);
+  const refreshDecisions = () =>
+    listDecisions()
+      .then((all) => setDecisions(Object.fromEntries(all.map((d) => [d.alertId, d]))))
+      .catch(() => {});
+  useEffect(() => { refreshHistory(); refreshDecisions(); }, [receipt]);
 
   // Offline: the cloud is out of reach, so Gemini Nano writes a short summary from the anonymized overview.
   useEffect(() => {
@@ -134,9 +140,13 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
     const a = analyzeLocally(rows, { entities, thresholds: config.thresholds, fileName: name });
-    setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
+    const builtDossiers = buildDossiers(a, config.thresholds);
+    setAnalysis(a); setDossiers(builtDossiers); setOpenDossierId(builtDossiers[0]?.id ?? null);
+    setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
     setSummary({ state: 'idle', text: '' });
     saveAliasMap(name, a.aliases).catch(() => {});
+    saveDossiers(builtDossiers).catch(() => {});
+    await refreshDecisions();
     setScreen('local');
   }
 
@@ -153,7 +163,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     setReading(`Gemini Nano is reading the ${kind} on this device…`);
     const r = await readPhoto(photo.image, kind, ai.onDevice, nano === 'ready');
     setPending(null);
-    setReview({ name: photo.name, persons: r.persons, warning: r.warning, rows: r.rows.map((x) => ({ date: x.date, description: x.description, amount: (x.amountCents / 100).toFixed(2) })) });
+    const initialRows = r.rows.map((x) => ({ date: x.date, description: x.description, amount: (x.amountCents / 100).toFixed(2) }));
+    setReview({ name: photo.name, persons: r.persons, warning: r.warning, rows: initialRows.map((x) => ({ ...x })), initialRows });
     setScreen('review');
   });
   const loadSamplePhoto = async (name: string, kind: PhotoKind) => readPhotoAs({ image: await (await sample(name)).blob(), name }, kind);
@@ -168,11 +179,36 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   };
 
   const editRow = (i: number, k: keyof ReviewRow, v: string) => setReview((r) => r && { ...r, rows: r.rows.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
-  const confirmReview = () => review && run(() => analyze(rowsFromReview(review.rows), review.name, 'photo', review.persons));
+  const confirmReview = () => review && run(() => analyze(rowsFromReview(review.rows.map((x) => ({ ...x, page: 1 })), review.initialRows), review.name, 'photo', review.persons));
+
+  async function updateDecision(alertId: string, status: DecisionStatus, note?: string) {
+    const prev = decisions[alertId];
+    const next: AlertDecision = {
+      alertId,
+      status,
+      note: note !== undefined ? note : (prev?.note ?? ''),
+      updatedAt: new Date().toISOString(),
+    };
+    setDecisions((curr) => ({ ...curr, [alertId]: next }));
+    await saveDecision(next);
+  }
+
+  async function updateDecisionNote(alertId: string, note: string) {
+    const prev = decisions[alertId];
+    const next: AlertDecision = {
+      alertId,
+      status: prev?.status ?? 'ask_accountant',
+      note,
+      updatedAt: new Date().toISOString(),
+    };
+    setDecisions((curr) => ({ ...curr, [alertId]: next }));
+    await saveDecision(next);
+  }
 
   async function deleteAll() {
     await clearLocalData();
     setConfirmClear(false);
+    setDecisions({});
     await refreshHistory();
   }
 
@@ -375,25 +411,52 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <div>
                 <h3 style={{ margin: 0 }}>Statement integrity check</h3>
-                <span className="muted">Deterministic verification of running balances, chronological dates, export duplicates and period coverage.</span>
+                <span className="muted">Deterministic verification of running balances, chronological dates, export duplicates and period coverage. Click any issue to inspect its evidence dossier.</span>
               </div>
               <span className={`badge ${analysis.integrity.length === 0 ? '' : 'warn'}`}>
                 <span className="dot" />
                 {analysis.integrity.length === 0 ? 'Reconciled · 0 gaps' : `${analysis.integrity.length} integrity ${analysis.integrity.length === 1 ? 'issue' : 'issues'}`}
               </span>
             </div>
-            {analysis.integrity.length > 0 && (
+            {dossiers.filter((d) => d.kind === 'integrity').length > 0 && (
               <div className="mt">
-                {analysis.integrity.map((issue, i) => <IntegrityItem key={i} issue={issue} />)}
+                {dossiers.filter((d) => d.kind === 'integrity').map((d) => (
+                  <DossierRow
+                    key={d.id}
+                    dossier={d}
+                    open={openDossierId === d.id}
+                    onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
+                    decision={decisions[d.id]}
+                    onDecision={(status) => updateDecision(d.id, status)}
+                    onNote={(note) => updateDecisionNote(d.id, note)}
+                    real={real}
+                    rowsByIndex={analysis.rows}
+                  />
+                ))}
               </div>
             )}
           </div>
 
           <div className="grid g2 mt">
             <div className="card">
-              <h3>Anomalies</h3>
-              {analysis.signals.length === 0 && <span className="muted">Nothing unusual found.</span>}
-              {analysis.signals.map((s, i) => <SignalItem key={i} s={s} real={real} />)}
+              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                <h3 style={{ margin: 0 }}>Anomalies &amp; Evidence Dossiers</h3>
+                <span className="muted" style={{ fontSize: 12.5 }}>Click an alert for origin rows &amp; decision</span>
+              </div>
+              {dossiers.filter((d) => d.kind === 'anomaly').length === 0 && <span className="muted">Nothing unusual found.</span>}
+              {dossiers.filter((d) => d.kind === 'anomaly').map((d) => (
+                <DossierRow
+                  key={d.id}
+                  dossier={d}
+                  open={openDossierId === d.id}
+                  onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
+                  decision={decisions[d.id]}
+                  onDecision={(status) => updateDecision(d.id, status)}
+                  onNote={(note) => updateDecisionNote(d.id, note)}
+                  real={real}
+                  rowsByIndex={analysis.rows}
+                />
+              ))}
             </div>
             <div className="card">
               <h3>Totals</h3>
@@ -544,35 +607,116 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   );
 }
 
-function SignalItem({ s, real }: { s: Signal; real: (t: string) => string }) {
-  const label: Record<Signal['type'], string> = { duplicate: 'Possible duplicate', price_increase: 'Price increase', outlier: 'Outlier', round_transfer: 'Round transfer', weekend_spend: 'Weekend spend' };
-  const who = real(s.vendor);
-  const detail = s.type === 'duplicate' ? `${usd(s.amountCents)} on ${s.dates[0]} and ${s.dates[1]}`
-    : s.type === 'price_increase' ? `${usd(s.fromCents)} to ${usd(s.toCents)} on ${s.date}`
-    : `${usd(s.amountCents)} on ${s.date}`;
-  return (
-    <div className="sig"><div className={`sev ${s.type === 'duplicate' || s.type === 'outlier' ? 'high' : s.type === 'weekend_spend' ? 'low' : ''}`} />
-      <div><b>{label[s.type]}</b> · {who}<div className="muted">{detail}</div></div></div>
-  );
-}
+const DECISION_LABELS: Record<DecisionStatus, { label: string; badgeClass: string }> = {
+  explained: { label: 'Explained', badgeClass: '' },
+  ask_accountant: { label: 'Ask my accountant', badgeClass: 'accent' },
+  ignore: { label: 'Ignore', badgeClass: 'warn' },
+};
 
-function IntegrityItem({ issue }: { issue: IntegrityIssue }) {
-  const label: Record<IntegrityIssue['type'], string> = {
-    balance_mismatch: 'Running balance mismatch',
-    missing_page: 'Missing page (balance jump)',
-    duplicate_row: 'Exact duplicate row (export error)',
-    date_gap: 'Unusual date gap',
-    incomplete_period: 'Incomplete statement period',
-  };
-  const sev = issue.type === 'balance_mismatch' || issue.type === 'missing_page' ? 'high' : '';
+function DossierRow({
+  dossier,
+  open,
+  onToggle,
+  decision,
+  onDecision,
+  onNote,
+  real,
+  rowsByIndex,
+}: {
+  dossier: EvidenceDossier;
+  open: boolean;
+  onToggle: () => void;
+  decision?: AlertDecision;
+  onDecision: (status: DecisionStatus) => void;
+  onNote: (note: string) => void;
+  real: (t: string) => string;
+  rowsByIndex: AnalyzedRow[];
+}) {
   return (
-    <div className="sig">
-      <div className={`sev ${sev}`} />
-      <div>
-        <b>{label[issue.type]}</b> · rows {issue.rows[0]}–{issue.rows[1]}
-        <div className="mono">{issue.proof}</div>
-        <div className="muted">{issue.detail}</div>
-      </div>
+    <div className="sig-wrap" data-testid={`alert-${dossier.type}`}>
+      <button type="button" className="sig-btn" aria-expanded={open} onClick={onToggle}>
+        <div className="sig-main">
+          <div className={`sev ${dossier.severity === 'high' ? 'high' : dossier.severity === 'low' ? 'low' : ''}`} style={{ alignSelf: 'stretch' }} />
+          <div>
+            <b>{real(dossier.title)}</b>
+            <div className={dossier.kind === 'integrity' ? 'mono' : 'muted'}>{real(dossier.summary)}</div>
+          </div>
+        </div>
+        <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+          {decision && (
+            <span className={`badge ${DECISION_LABELS[decision.status].badgeClass}`}>
+              {DECISION_LABELS[decision.status].label}
+            </span>
+          )}
+          <span className="pill">{open ? 'Hide dossier' : 'Evidence dossier'}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="dossier" data-testid="evidence-dossier">
+          <h4>Origin rows ({dossier.sourceRows.length})</h4>
+          <div className="origin-list">
+            {dossier.sourceRows.map((sr) => {
+              const fullRow = rowsByIndex[sr.rowIndex];
+              return (
+                <div className="origin-row" key={sr.line}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span className="mono">
+                      {sr.page !== undefined ? `Page ${sr.page} · ` : ''}Line #{sr.line} · {sr.date} · {sr.vendorAlias} ({real(sr.vendorAlias)})
+                    </span>
+                    <b className="mono">{usd(sr.amountCents)}{sr.balanceCents !== null ? ` · bal ${usd(sr.balanceCents)}` : ''}</b>
+                  </div>
+                  <div style={{ marginTop: 4 }}>{fullRow ? <Highlighted row={fullRow} /> : sr.description}</div>
+                  {sr.photo && (
+                    <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }} data-testid="photo-provenance">
+                      Gemini Nano read: <code>{sr.photo.rawDate} · {sr.photo.rawDescription} · {sr.photo.rawAmount}</code>
+                      {' · '}
+                      <b>{sr.photo.editedByUser ? 'Edited by user in "Check what was read"' : 'Unmodified from Gemini Nano read'}</b>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <h4>Applied rule &amp; Remote Config threshold</h4>
+          <div className="kv">
+            <b>{dossier.rule.name}</b>
+            <span className="mono">{dossier.rule.thresholdSummary}</span>
+          </div>
+
+          <h4>Computed evidence</h4>
+          <div className="kv-grid">
+            {dossier.computed.map((m) => (
+              <div className="kv" key={m.label}>
+                <span>{m.label}</span>
+                <b>{m.value}</b>
+              </div>
+            ))}
+          </div>
+
+          <h4>Your decision (saved in IndexedDB)</h4>
+          <div className="decision-bar" role="group" aria-label="Alert decision">
+            {(['explained', 'ask_accountant', 'ignore'] as DecisionStatus[]).map((st) => (
+              <button
+                key={st}
+                type="button"
+                className={`btn small ${decision?.status === st ? 'active' : ''}`}
+                onClick={() => onDecision(st)}
+              >
+                {DECISION_LABELS[st].label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            className="note-input"
+            aria-label="Decision note"
+            placeholder="Add a note or question for your accountant (stored locally in IndexedDB)…"
+            value={decision?.note ?? ''}
+            onChange={(e) => onNote(e.target.value)}
+          />
+        </div>
+      )}
     </div>
   );
 }

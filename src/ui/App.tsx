@@ -6,7 +6,7 @@ import { useConfig } from '../config/useConfig';
 import { parseStatement } from '../core/csv';
 import { buildDossiers, type AlertDecision, type DecisionStatus, type EvidenceDossier } from '../core/dossier';
 import { buildAccountantCaseCsv, buildAccountantCaseJson } from '../core/export';
-import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
+import { analyzeLocally, buildPayload, countFlaggedAnomalies, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
 import { clearLocalData, listDecisions, listReceipts, saveAliasMap, saveDecision, saveDossiers, saveReceipt, type Receipt } from '../store/receipts';
@@ -170,8 +170,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
       }
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
-    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds, fileName: name });
-    const builtDossiers = buildDossiers(a, config.thresholds);
+    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds, integrity: config.integrity, fileName: name });
+    const builtDossiers = buildDossiers(a, config.thresholds, config.integrity);
     setAnalysis(a); setDossiers(builtDossiers); setOpenDossierId(builtDossiers[0]?.id ?? null);
     setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
     setSummary({ state: 'idle', text: '' });
@@ -562,7 +562,15 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             <div className="card stat"><b>{analysis.rows.length}</b><span>transactions</span></div>
             <div className="card stat"><b>{analysis.counters.piiFound}</b><span>sensitive values found</span></div>
             <div className="card stat"><b>{analysis.counters.piiReplaced}</b><span>replaced with aliases</span></div>
-            <div className="card stat"><b>{analysis.signals.length}</b><span>anomalies flagged</span></div>
+            <div className="card stat" data-testid="anomalies-stat">
+              <b>{countFlaggedAnomalies(analysis.signals)}</b>
+              <span>anomalies flagged</span>
+              {dossiers.some((d) => d.kind === 'anomaly' && d.exportDuplicate) && (
+                <span data-testid="export-duplicate-stat" style={{ display: 'block', marginTop: 2, fontSize: 12 }}>
+                  +{dossiers.filter((d) => d.kind === 'anomaly' && d.exportDuplicate).length} export duplicate shown separately
+                </span>
+              )}
+            </div>
           </div>
           {analysis.mode === 'strict' && nanoNote && <div className="note mt" role="status">{nanoNote}</div>}
           {analysis.mode === 'strict' && <div className="note mt">Strict mode: person names inside free text are not detected without the on-device model, so free-text descriptions are never included in what is sent.</div>}
@@ -603,8 +611,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                 <h3 style={{ margin: 0 }}>Anomalies &amp; Evidence Dossiers</h3>
                 <span className="muted" style={{ fontSize: 12.5 }}>Click an alert for origin rows &amp; decision</span>
               </div>
-              {dossiers.filter((d) => d.kind === 'anomaly').length === 0 && <span className="muted">Nothing unusual found.</span>}
-              {dossiers.filter((d) => d.kind === 'anomaly').map((d) => (
+              {dossiers.filter((d) => d.kind === 'anomaly' && !d.exportDuplicate).length === 0 && <span className="muted">Nothing unusual found.</span>}
+              {dossiers.filter((d) => d.kind === 'anomaly' && !d.exportDuplicate).map((d) => (
                 <DossierRow
                   key={d.id}
                   dossier={d}
@@ -617,6 +625,27 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                   rowsByIndex={analysis.rows}
                 />
               ))}
+              {dossiers.some((d) => d.kind === 'anomaly' && d.exportDuplicate) && (
+                <div className="mt" data-testid="export-duplicates-section" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+                    <h4 style={{ margin: 0, fontSize: 13 }}>Confirmed export duplicates (excluded from anomaly count)</h4>
+                    <span className="badge"><span className="dot" />Verified by integrity check</span>
+                  </div>
+                  {dossiers.filter((d) => d.kind === 'anomaly' && d.exportDuplicate).map((d) => (
+                    <DossierRow
+                      key={d.id}
+                      dossier={d}
+                      open={openDossierId === d.id}
+                      onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
+                      decision={decisions[d.id]}
+                      onDecision={(status) => updateDecision(d.id, status)}
+                      onNote={(note) => updateDecisionNote(d.id, note)}
+                      real={real}
+                      rowsByIndex={analysis.rows}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
             <div className="card">
               <h3>Totals</h3>

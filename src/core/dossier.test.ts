@@ -6,8 +6,8 @@ import { clearLocalData, getDecision, listDecisions, listDossiers, saveDecision,
 import { parseStatement } from './csv';
 import type { StatementRow } from './types';
 import { buildDossiers } from './dossier';
-import { analyzeLocally } from './pipeline';
-import { DEFAULT_THRESHOLDS, type Thresholds } from './thresholds';
+import { analyzeLocally, countFlaggedAnomalies } from './pipeline';
+import { DEFAULT_INTEGRITY_THRESHOLDS, DEFAULT_THRESHOLDS, type Thresholds } from './thresholds';
 
 describe('buildDossiers', () => {
   beforeEach(async () => {
@@ -183,7 +183,38 @@ describe('buildDossiers', () => {
     for (const d of others) {
       expect(d.severity).toBe('high');
       expect(d.proof).toContain('twice');
+      expect(d.exportDuplicate).toBeUndefined();
     }
+
+    // Confirmed export duplicates are marked and excluded from the anomalies flagged counter
+    expect(exportDup.exportDuplicate).toBe(true);
+    expect(countFlaggedAnomalies(analysis.signals)).toBe(analysis.signals.length - 1);
+  });
+
+  it('applies Remote Config integrity thresholds to both detection and dossier rule summaries', () => {
+    const rows = parseStatement(readFileSync('public/samples/acme-q3-gaps.csv', 'utf8'));
+    // With maxDateGapDays=10 and periodGraceDays=7, both issues still trigger and show the configured Remote Config thresholds
+    const customIntegrity = { maxDateGapDays: 10, periodGraceDays: 7 };
+    const analysis = analyzeLocally(rows, {
+      fileName: 'acme-q3-gaps.csv',
+      integrity: customIntegrity,
+    });
+    const dossiers = buildDossiers(analysis, DEFAULT_THRESHOLDS, customIntegrity);
+    const dateGap = dossiers.find((d) => d.kind === 'integrity' && d.type === 'date_gap')!;
+    expect(dateGap.rule.thresholdSummary).toBe('maxDateGapDays <= 10 days');
+    expect(dateGap.rule.thresholds).toEqual({ maxDateGapDays: 10 });
+
+    const period = dossiers.find((d) => d.kind === 'integrity' && d.type === 'incomplete_period')!;
+    expect(period.rule.thresholdSummary).toBe('periodGraceDays <= 7 days at period boundaries');
+    expect(period.rule.thresholds).toEqual({ periodGraceDays: 7 });
+
+    // Raising maxDateGapDays above 21 and periodGraceDays above 18 suppresses those integrity alerts
+    const suppressed = analyzeLocally(rows, {
+      fileName: 'acme-q3-gaps.csv',
+      integrity: { ...DEFAULT_INTEGRITY_THRESHOLDS, maxDateGapDays: 25, periodGraceDays: 20 },
+    });
+    expect(suppressed.integrity.some((i) => i.type === 'date_gap')).toBe(false);
+    expect(suppressed.integrity.some((i) => i.type === 'incomplete_period')).toBe(false);
   });
 
   it('keeps a real double charge as a high severity alert when the balance moved both times', () => {

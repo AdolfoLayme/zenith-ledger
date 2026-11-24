@@ -7,6 +7,13 @@
       "valueType": "JSON",
       "description": "Limits for the duplicate, price increase, outlier, round transfer and weekend detectors (amounts in cents)."
     },
+    "integrity_thresholds": {
+      "defaultValue": {
+        "value": "{\"maxDateGapDays\":14,\"periodGraceDays\":5}"
+      },
+      "valueType": "JSON",
+      "description": "Limits for the chronological date gap and declared period coverage checks in days."
+    },
     "cloud_model": {
       "defaultValue": { "value": "gemini-3.5-flash-lite" },
       "valueType": "STRING",

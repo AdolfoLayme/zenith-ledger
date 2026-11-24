@@ -160,10 +160,13 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
     await expect(clientPage.getByTestId('integrity-check')).toContainText('gap between rows 41–42');
 
-    // The BRIGHTLINE lines 15-16 repeat with the same balance: integrity proves an export error, not a double charge
-    const exportDup = clientPage.getByTestId('alert-duplicate').first();
-    await expect(exportDup).toContainText('Likely export duplicate');
-    await expect(exportDup).not.toContainText('Possible duplicate');
+    // The BRIGHTLINE lines 15-16 repeat with the same balance: integrity proves an export error, not a double charge,
+    // so it is shown in its own section and excluded from the anomalies flagged counter
+    await expect(clientPage.getByTestId('export-duplicate-stat')).toContainText('+1 export duplicate shown separately');
+    const exportSection = clientPage.getByTestId('export-duplicates-section');
+    await expect(exportSection).toBeVisible();
+    await expect(exportSection.getByTestId('alert-duplicate')).toContainText('Likely export duplicate');
+    await expect(exportSection.getByTestId('alert-duplicate')).not.toContainText('Possible duplicate');
 
     // Open a real double charge and mark it "Ask my accountant" with a question containing a real vendor name
     const dupAlert = clientPage.getByTestId('alert-duplicate').filter({ hasText: 'Possible duplicate' }).first();

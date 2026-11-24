@@ -84,6 +84,11 @@ function markExportDuplicates(signals: Signal[], integrity: IntegrityIssue[], ro
   );
 }
 
+/** Counts only true anomaly signals, excluding repeated lines confirmed as export duplicates by the integrity check. */
+export function countFlaggedAnomalies(signals: Signal[]): number {
+  return signals.filter((s) => !(s.type === 'duplicate' && s.exportDuplicate)).length;
+}
+
 export function analyzeLocally(
   input: StatementRow[],
   opts: { entities?: RowEntities[]; thresholds?: Thresholds; fileName?: string; integrity?: IntegrityOptions } = {},

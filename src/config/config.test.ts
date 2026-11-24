@@ -11,7 +11,23 @@ describe('resolveConfig', () => {
       duplicateWindowDays: 3, priceIncreaseMinPercent: 0, outlierZ: 2.5, outlierMinSamples: 10,
       roundTransferMinCents: 50000, roundTransferMultipleCents: 50000, weekendMinCents: 20000,
     });
+    expect(DEFAULT_CONFIG.integrity).toEqual({
+      maxDateGapDays: 14,
+      periodGraceDays: 5,
+    });
     expect(DEFAULT_CONFIG.cloudModel).toBe('gemini-3.5-flash-lite');
+  });
+
+  it('overrides integrity thresholds from Remote Config and ignores invalid values', () => {
+    const c = resolveConfig({
+      integrity_thresholds: JSON.stringify({ maxDateGapDays: 21, periodGraceDays: 3 }),
+    });
+    expect(c.integrity).toEqual({ maxDateGapDays: 21, periodGraceDays: 3 });
+
+    const invalid = resolveConfig({
+      integrity_thresholds: JSON.stringify({ maxDateGapDays: 0, periodGraceDays: -2, extra: 99 }),
+    });
+    expect(invalid.integrity).toEqual(DEFAULT_CONFIG.integrity);
   });
 
   it('overrides only the thresholds it is given', () => {

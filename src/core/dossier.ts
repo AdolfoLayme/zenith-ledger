@@ -1,7 +1,12 @@
 import type { Signal } from './analytics';
 import { plainMoney, type IntegrityIssue } from './integrity';
 import type { AnalyzedRow, LocalAnalysis } from './pipeline';
-import { DEFAULT_THRESHOLDS, type Thresholds } from './thresholds';
+import {
+  DEFAULT_INTEGRITY_THRESHOLDS,
+  DEFAULT_THRESHOLDS,
+  type IntegrityThresholds,
+  type Thresholds,
+} from './thresholds';
 import type { PhotoProvenance } from './types';
 
 export type DecisionStatus = 'explained' | 'ask_accountant' | 'ignore';
@@ -49,6 +54,8 @@ export interface EvidenceDossier {
   kind: 'anomaly' | 'integrity';
   type: Signal['type'] | IntegrityIssue['type'];
   severity: 'high' | 'medium' | 'low';
+  /** Present when a duplicate signal was confirmed as a statement export duplicate (balance did not move). */
+  exportDuplicate?: true;
   vendorAlias: string;
   category: string;
   title: string;
@@ -105,6 +112,7 @@ function buildSignalDossier(s: Signal, a: LocalAnalysis, limits: Thresholds): Ev
         kind: 'anomaly',
         type: 'duplicate',
         severity: s.exportDuplicate ? 'low' : 'high',
+        ...(s.exportDuplicate ? { exportDuplicate: true as const } : {}),
         vendorAlias: s.vendor,
         category: matched[0]?.category ?? 'Other',
         title: `${s.exportDuplicate ? 'Likely export duplicate' : 'Possible duplicate'} · ${s.vendor}`,
@@ -325,12 +333,38 @@ function integrityMetrics(issue: IntegrityIssue, sourceRows: SourceRowEvidence[]
   }
 }
 
-function buildIntegrityDossier(issue: IntegrityIssue, a: LocalAnalysis): EvidenceDossier {
+function buildIntegrityDossier(
+  issue: IntegrityIssue,
+  a: LocalAnalysis,
+  integrityLimits: IntegrityThresholds = DEFAULT_INTEGRITY_THRESHOLDS,
+): EvidenceDossier {
   const indices = [...new Set([issue.rows[0] - 1, issue.rows[1] - 1])].filter((idx) => idx >= 0 && idx < a.rows.length);
   const sourceRows = indices.map((idx) => toSourceRow(a.rows[idx]));
   const meta = INTEGRITY_LABELS[issue.type];
   const primaryRow = sourceRows[sourceRows.length - 1] ?? sourceRows[0];
   const where = issue.rows[0] === issue.rows[1] ? `row ${issue.rows[0]}` : `rows ${issue.rows[0]}–${issue.rows[1]}`;
+
+  const rule: RuleEvidence =
+    issue.type === 'date_gap'
+      ? {
+          id: issue.type,
+          name: meta.ruleName,
+          thresholdSummary: `maxDateGapDays <= ${integrityLimits.maxDateGapDays} days`,
+          thresholds: { maxDateGapDays: integrityLimits.maxDateGapDays },
+        }
+      : issue.type === 'incomplete_period'
+        ? {
+            id: issue.type,
+            name: meta.ruleName,
+            thresholdSummary: `periodGraceDays <= ${integrityLimits.periodGraceDays} days at period boundaries`,
+            thresholds: { periodGraceDays: integrityLimits.periodGraceDays },
+          }
+        : {
+            id: issue.type,
+            name: meta.ruleName,
+            thresholdSummary: meta.thresholdSummary,
+            thresholds: { toleranceCents: 0 },
+          };
 
   return {
     id: `integrity:${issue.type}:${issue.rows[0]}-${issue.rows[1]}`,
@@ -343,19 +377,18 @@ function buildIntegrityDossier(issue: IntegrityIssue, a: LocalAnalysis): Evidenc
     summary: issue.proof,
     proof: issue.proof,
     sourceRows,
-    rule: {
-      id: issue.type,
-      name: meta.ruleName,
-      thresholdSummary: meta.thresholdSummary,
-      thresholds: issue.gapDays !== undefined ? { maxGapDays: issue.type === 'date_gap' ? 14 : 5 } : { toleranceCents: 0 },
-    },
+    rule,
     computed: integrityMetrics(issue, sourceRows),
   };
 }
 
-export function buildDossiers(analysis: LocalAnalysis, thresholds: Thresholds = DEFAULT_THRESHOLDS): EvidenceDossier[] {
+export function buildDossiers(
+  analysis: LocalAnalysis,
+  thresholds: Thresholds = DEFAULT_THRESHOLDS,
+  integrityLimits: IntegrityThresholds = DEFAULT_INTEGRITY_THRESHOLDS,
+): EvidenceDossier[] {
   return [
-    ...analysis.integrity.map((issue) => buildIntegrityDossier(issue, analysis)),
+    ...analysis.integrity.map((issue) => buildIntegrityDossier(issue, analysis, integrityLimits)),
     ...analysis.signals.map((s) => buildSignalDossier(s, analysis, thresholds)),
   ];
 }

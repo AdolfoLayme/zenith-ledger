@@ -25,3 +25,16 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   roundTransferMultipleCents: 50000,
   weekendMinCents: 20000,
 };
+
+/** Tunable limits for statement integrity checks, configured via Firebase Remote Config. */
+export interface IntegrityThresholds {
+  /** Maximum normal gap in calendar days between consecutive transactions before flagging date_gap. */
+  maxDateGapDays: number;
+  /** Allowed grace days at the start or end of a declared period before flagging incomplete_period. */
+  periodGraceDays: number;
+}
+
+export const DEFAULT_INTEGRITY_THRESHOLDS: IntegrityThresholds = {
+  maxDateGapDays: 14,
+  periodGraceDays: 5,
+};

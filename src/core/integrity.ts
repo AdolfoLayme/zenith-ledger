@@ -1,3 +1,4 @@
+import { DEFAULT_INTEGRITY_THRESHOLDS } from './thresholds';
 import type { StatementRow } from './types';
 
 export type IntegrityIssueType =
@@ -89,8 +90,8 @@ export function inferDeclaredPeriod(
 export function checkStatementIntegrity(rows: StatementRow[], opts: IntegrityOptions = {}): IntegrityIssue[] {
   if (!rows.length) return [];
   const issues: IntegrityIssue[] = [];
-  const maxGap = opts.maxDateGapDays ?? 14;
-  const grace = opts.periodGraceDays ?? 5;
+  const maxGap = opts.maxDateGapDays ?? DEFAULT_INTEGRITY_THRESHOLDS.maxDateGapDays;
+  const grace = opts.periodGraceDays ?? DEFAULT_INTEGRITY_THRESHOLDS.periodGraceDays;
 
   if (opts.openingBalanceCents !== undefined && rows[0].balanceCents !== null) {
     const expected = opts.openingBalanceCents + rows[0].amountCents;

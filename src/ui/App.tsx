@@ -9,11 +9,13 @@ import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type B
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
 import { clearLocalData, listDecisions, listReceipts, saveAliasMap, saveDecision, saveDossiers, saveReceipt, type Receipt } from '../store/receipts';
+import { openPackStore } from '../pack/firestore';
+import { buildAccountantPack, type AccountantPackDoc, type BuiltAccountantPack, type PackItem, type PackReply } from '../pack/pack';
 import { openReceiptVault } from '../vault/firestore';
 import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
 
-type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts';
+type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts' | 'accountant';
 type ReviewRow = { date: string; description: string; amount: string };
 type Nano = 'idle' | 'downloading' | 'ready' | 'unavailable';
 
@@ -78,6 +80,12 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const [dossiers, setDossiers] = useState<EvidenceDossier[]>([]);
   const [openDossierId, setOpenDossierId] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<Record<string, AlertDecision>>({});
+  const [firewallKind, setFirewallKind] = useState<'audit' | 'pack'>('audit');
+  const [builtPack, setBuiltPack] = useState<BuiltAccountantPack | null>(null);
+  const [sharedPack, setSharedPack] = useState<{ pack: AccountantPackDoc; replies: PackReply[] } | null>(null);
+  const [accountantView, setAccountantView] = useState<{ pack: AccountantPackDoc; replies: Record<string, PackReply> } | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replyBusyId, setReplyBusyId] = useState<string | null>(null);
   const [vaultBusy, setVaultBusy] = useState(false);
   const [vaultOn, setVaultOn] = useState(false);
   const [vaultNote, setVaultNote] = useState('');
@@ -105,6 +113,28 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     if (!ai.onDevice) return;
     ai.onDevice.alreadyAvailable().then((yes) => { if (yes) enableNano(); }).catch(() => {});
   }, [ai.onDevice]);
+
+  // If opened with ?pack=<packId>, load the Accountant Review Pack directly without requiring an account.
+  useEffect(() => {
+    if (typeof location === 'undefined') return;
+    const packId = new URLSearchParams(location.search).get('pack');
+    if (!packId) return;
+    setScreen('accountant');
+    setBusy(true);
+    openPackStore()
+      .then((store) => store.get(packId))
+      .then((res) => {
+        if (!res) {
+          setError('Accountant review pack not found or expired.');
+          return;
+        }
+        const byAlert = Object.fromEntries(res.replies.map((r) => [r.alertId, r]));
+        setAccountantView({ pack: res.pack, replies: byAlert });
+        setReplyDrafts(Object.fromEntries(res.replies.map((r) => [r.alertId, r.reply])));
+      })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setBusy(false));
+  }, []);
 
   async function enableNano() {
     if (!ai.onDevice) return;
@@ -238,7 +268,98 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   async function toFirewall() {
     if (!analysis) return;
     setBuilt(await buildPayload(analysis));
+    setFirewallKind('audit');
     setScreen('firewall');
+  }
+
+  async function toPackFirewall() {
+    if (!analysis) return;
+    setError('');
+    try {
+      const bp = await buildAccountantPack(analysis, dossiers, decisions);
+      setBuiltPack(bp);
+      setFirewallKind('pack');
+      setScreen('firewall');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function approvePack() {
+    if (!builtPack || !analysis) return;
+    setBusy(true); setError('');
+    try {
+      await saveAliasMap(builtPack.pack.packId, analysis.aliases);
+      const store = await openPackStore();
+      await store.create(builtPack.pack);
+      const rc: Receipt = {
+        sentAt: builtPack.pack.createdAt,
+        hash: builtPack.hash,
+        fields: ['schema', 'currency', 'period', 'signals'],
+        rowCount: builtPack.counters.selectedRows,
+        piiFound: analysis.counters.piiFound,
+        piiReplaced: analysis.counters.piiReplaced,
+        rawDescriptionsSent: builtPack.counters.rawDescriptionsSent,
+      };
+      await saveReceipt(rc);
+      setReceipt(rc);
+      setSharedPack({ pack: builtPack.pack, replies: [] });
+      setScreen('local');
+    } catch (e) {
+      setError(`Could not share accountant review pack: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshSharedPackReplies() {
+    if (!sharedPack) return;
+    setBusy(true); setError('');
+    try {
+      const store = await openPackStore();
+      const res = await store.get(sharedPack.pack.packId);
+      if (res) setSharedPack(res);
+    } catch (e) {
+      setError(`Could not load accountant responses: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function draftReplyWithAi(item: PackItem) {
+    if (!ai.cloud) return;
+    setReplyBusyId(item.alertId); setError('');
+    try {
+      const draft = await ai.cloud.draftReply(JSON.stringify(item), config.cloudModel);
+      setReplyDrafts((curr) => ({ ...curr, [item.alertId]: draft }));
+    } catch (e) {
+      setError(`Could not draft reply: ${(e as Error).message}`);
+    } finally {
+      setReplyBusyId(null);
+    }
+  }
+
+  async function sendAccountantReply(item: PackItem) {
+    if (!accountantView) return;
+    const text = (replyDrafts[item.alertId] ?? '').trim();
+    if (!text) return setError('Write or draft a response before sending.');
+    setReplyBusyId(item.alertId); setError('');
+    try {
+      const store = await openPackStore();
+      const reply: PackReply = {
+        alertId: item.alertId,
+        packId: accountantView.pack.packId,
+        reply: text,
+        repliedAt: new Date().toISOString(),
+        author: 'Accountant',
+      };
+      await store.reply(accountantView.pack.packId, reply);
+      setAccountantView((curr) => curr && { ...curr, replies: { ...curr.replies, [item.alertId]: reply } });
+    } catch (e) {
+      setError(`Could not send response: ${(e as Error).message}`);
+    } finally {
+      setReplyBusyId(null);
+    }
   }
 
   async function approve() {
@@ -254,6 +375,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   }
 
   const real = (s: string) => (analysis ? reidentify(s, analysis.aliases) : s);
+  const askCount = dossiers.filter((d) => decisions[d.id]?.status === 'ask_accountant').length;
   const idx = STEPS.findIndex(([k]) => k === (screen === 'review' ? 'upload' : screen));
 
   return (
@@ -467,6 +589,71 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             </div>
           </div>
 
+          <div className="card mt" data-testid="accountant-pack-builder">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div style={{ maxWidth: 680 }}>
+                <h3 style={{ margin: 0 }}>Accountant Review Pack — the accountant gets the proof, not your statement</h3>
+                <span className="muted">
+                  {askCount === 0
+                    ? 'Mark any anomaly or integrity alert above as "Ask my accountant" to package only its pseudonymized origin rows, computed evidence, and your question.'
+                    : `${askCount} ${askCount === 1 ? 'alert' : 'alerts'} marked for your accountant. Only those origin rows will be shared, with aliases.`}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn primary"
+                data-testid="review-pack-firewall"
+                disabled={askCount === 0 || busy}
+                onClick={toPackFirewall}
+              >
+                Review pack in Privacy Firewall
+              </button>
+            </div>
+
+            {sharedPack && (
+              <div className="dossier mt" data-testid="shared-pack-card">
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div>
+                    <b>Expiring accountant review link ready</b>
+                    <div className="muted">
+                      Sharing {sharedPack.pack.selectedRowCount} of {sharedPack.pack.totalStatementRows} statement rows · expires {new Date(sharedPack.pack.expiresAt).toLocaleString('en-US')}
+                    </div>
+                  </div>
+                  <button type="button" className="btn small" data-testid="refresh-pack-replies" onClick={refreshSharedPackReplies} disabled={busy}>
+                    {busy ? 'Checking…' : 'Refresh accountant responses'}
+                  </button>
+                </div>
+                <div className="kv mt">
+                  <span>Shareable link (no account required for accountant)</span>
+                  <code data-testid="pack-share-url">
+                    {`${typeof location !== 'undefined' ? `${location.origin}${location.pathname}` : ''}?pack=${sharedPack.pack.packId}`}
+                  </code>
+                </div>
+                <div className="mt" data-testid="client-pack-replies">
+                  <h4>Accountant responses (real names restored locally on this device)</h4>
+                  {sharedPack.replies.length === 0 ? (
+                    <span className="muted">No responses yet. When your accountant replies using aliases, real names are restored here locally.</span>
+                  ) : (
+                    <div className="origin-list">
+                      {sharedPack.replies.map((r) => {
+                        const item = sharedPack.pack.items.find((it) => it.alertId === r.alertId);
+                        return (
+                          <div className="origin-row" key={r.alertId} data-testid="reidentified-reply">
+                            <div className="row" style={{ justifyContent: 'space-between' }}>
+                              <b>{real(item?.title ?? r.alertId)}</b>
+                              <span className="badge"><span className="dot" />Re-identified locally</span>
+                            </div>
+                            <p style={{ margin: '6px 0 0' }}>{real(r.reply)}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <h3 className="mt2">Transactions, with sensitive values highlighted</h3>
           <div className="tablewrap">
             <table>
@@ -491,7 +678,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
         </section>
       )}
 
-      {screen === 'firewall' && analysis && built && (
+      {screen === 'firewall' && analysis && firewallKind === 'audit' && built && (
         <section>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div><h2>Privacy Firewall</h2><span className="muted">This is the exact JSON that will leave your device if you approve.</span></div>
@@ -522,6 +709,55 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
           <div className="row mt2">
             <button className="btn" onClick={() => setScreen('local')}>Back</button>
             <button className="btn primary" disabled={!online || !ai.cloud || busy} onClick={approve}>{busy ? 'Analyzing…' : 'Approve & send'}</button>
+          </div>
+        </section>
+      )}
+
+      {screen === 'firewall' && analysis && firewallKind === 'pack' && builtPack && (
+        <section data-testid="pack-firewall">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div>
+              <h2>Privacy Firewall · Accountant Review Pack</h2>
+              <span className="muted">Your accountant gets only the selected alerts, pseudonymized rows, and computed proof. All other rows stay on this device.</span>
+            </div>
+            <span className="badge accent"><span className="dot" />Expiring pack link</span>
+          </div>
+          <div className="grid g4 mt">
+            <div className="card stat"><b>{builtPack.counters.selectedAlerts}</b><span>alerts in pack</span></div>
+            <div className="card stat"><b>{builtPack.counters.selectedRows} / {analysis.rows.length}</b><span>rows included ({builtPack.counters.unselectedRowsExcluded} excluded)</span></div>
+            <div className="card stat"><b>{builtPack.counters.rawDescriptionsSent}</b><span>raw descriptions sent</span></div>
+            <div className="card stat"><b>{(builtPack.json.length / 1024).toFixed(1)} KB</b><span>pack size</span></div>
+          </div>
+
+          <h3 className="mt2">Before and after</h3>
+          <div className="diff">
+            <div className="col">
+              <h3>Stays on this device ({builtPack.counters.unselectedRowsExcluded} unselected rows + real names)</h3>
+              {builtPack.pack.items.flatMap((it) => it.rows).slice(0, 5).map((r) => {
+                const full = analysis.rows[r.line - 1];
+                return <div className="line" key={r.line}>Line #{r.line}: {full ? <Highlighted row={full} /> : ''}</div>;
+              })}
+            </div>
+            <div className="col">
+              <h3 className="out">What the accountant gets instead</h3>
+              {builtPack.pack.items.flatMap((it) => it.rows).slice(0, 5).map((r) => (
+                <div className="line" key={r.line}>
+                  <span className="mono">Line #{r.line} · {r.date} · {r.vendorAlias}</span> · {r.category} · <b className="mono">{usd(r.amountCents)}</b>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <h3 className="mt2">Exact Accountant Review Pack JSON</h3>
+          <pre className="json" tabIndex={0}>{builtPack.json}</pre>
+          <p className="muted" style={{ fontSize: 13 }}>SHA-256 <code>{builtPack.hash}</code></p>
+
+          {!online && <div className="note warn mt">You are offline. Reconnect to publish the expiring review link.</div>}
+          <div className="row mt2">
+            <button className="btn" onClick={() => setScreen('local')}>Back</button>
+            <button className="btn primary" data-testid="approve-pack" disabled={!online || busy} onClick={approvePack}>
+              {busy ? 'Creating link…' : 'Approve & create expiring link'}
+            </button>
           </div>
         </section>
       )}
@@ -601,6 +837,120 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             </div>
           )}
           <div className="row mt"><button className="btn" onClick={() => setScreen(analysis ? 'local' : 'upload')}>Back</button></div>
+        </section>
+      )}
+
+      {screen === 'accountant' && (
+        <section data-testid="accountant-view">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div>
+              <h2>Accountant Review Pack</h2>
+              <span className="muted">
+                {accountantView
+                  ? `Period ${accountantView.pack.periodFrom} to ${accountantView.pack.periodTo} · ${accountantView.pack.selectedRowCount} of ${accountantView.pack.totalStatementRows} statement rows shared · expires ${new Date(accountantView.pack.expiresAt).toLocaleDateString('en-US')}`
+                  : 'Loading review pack…'}
+              </span>
+            </div>
+            <span className="badge accent"><span className="dot" />Accountant view · no account required · aliases only</span>
+          </div>
+
+          {accountantView && (
+            <>
+              <div className="card mt">
+                <div className="grid g3">
+                  <div><span className="muted">Alerts to review</span><div><b>{accountantView.pack.selectedAlertCount}</b></div></div>
+                  <div><span className="muted">Rows included</span><div><b>{accountantView.pack.selectedRowCount} / {accountantView.pack.totalStatementRows}</b> (0 raw descriptions)</div></div>
+                  <div><span className="muted">Pack SHA-256</span><div><code>{accountantView.pack.hash}</code></div></div>
+                </div>
+              </div>
+
+              {accountantView.pack.items.map((item) => {
+                const savedReply = accountantView.replies[item.alertId];
+                const isBusy = replyBusyId === item.alertId;
+                return (
+                  <div className="card mt" key={item.alertId} data-testid={`pack-item-${item.type}`}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <div className="sig-main">
+                        <div className={`sev ${item.severity === 'high' ? 'high' : item.severity === 'low' ? 'low' : ''}`} style={{ alignSelf: 'stretch' }} />
+                        <div>
+                          <b>{item.title}</b>
+                          <div className="mono">{item.proof}</div>
+                        </div>
+                      </div>
+                      <span className="pill">{item.category}</span>
+                    </div>
+
+                    <div className="dossier mt">
+                      <h4>Client question</h4>
+                      <p style={{ margin: 0 }} data-testid="pack-item-question">{item.question}</p>
+
+                      <h4>Rule &amp; computed evidence</h4>
+                      <div className="kv-grid">
+                        <div className="kv"><span>Rule</span><b>{item.ruleName}</b></div>
+                        <div className="kv"><span>Threshold</span><b className="mono">{item.thresholdSummary}</b></div>
+                        <div className="kv"><span>Computed</span><b>{item.computedSummary}</b></div>
+                      </div>
+
+                      <h4>Shared pseudonymized origin rows ({item.rows.length})</h4>
+                      <div className="tablewrap">
+                        <table>
+                          <thead>
+                            <tr><th>Line</th><th>Date</th><th>Vendor alias</th><th>Category</th><th className="num">Amount</th><th className="num">Balance</th></tr>
+                          </thead>
+                          <tbody>
+                            {item.rows.map((r) => (
+                              <tr key={r.line}>
+                                <td className="mono">#{r.line}{r.page !== undefined ? ` (p.${r.page})` : ''}</td>
+                                <td className="mono">{r.date}</td>
+                                <td className="mono">{r.vendorAlias}</td>
+                                <td><span className="pill">{r.category}</span></td>
+                                <td className="num">{usd(r.amountCents)}</td>
+                                <td className="num">{r.balanceCents !== null ? usd(r.balanceCents) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <h4>Your accounting response (uses aliases; client browser restores real names locally)</h4>
+                      <input
+                        type="text"
+                        className="note-input"
+                        data-testid="accountant-reply-input"
+                        aria-label={`Accountant response for ${item.title}`}
+                        placeholder={`Write your advice referencing ${item.vendorAlias}…`}
+                        value={replyDrafts[item.alertId] ?? ''}
+                        onChange={(e) => setReplyDrafts((curr) => ({ ...curr, [item.alertId]: e.target.value }))}
+                      />
+                      <div className="row mt">
+                        {ai.cloud && (
+                          <button
+                            type="button"
+                            className="btn small"
+                            data-testid="draft-reply-gemini"
+                            disabled={isBusy || !online}
+                            onClick={() => draftReplyWithAi(item)}
+                          >
+                            {isBusy ? 'Working…' : 'Draft reply with Gemini (aliases only)'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn small primary"
+                          data-testid="send-accountant-reply"
+                          disabled={isBusy || !online}
+                          onClick={() => sendAccountantReply(item)}
+                        >
+                          Send response
+                        </button>
+                        {savedReply && <span className="badge" data-testid="reply-saved-badge"><span className="dot" />Response sent</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </section>
       )}
     </div>

@@ -25,6 +25,8 @@ export interface OnDevice {
 /** Receives only the payload the user approved in the Privacy Firewall. */
 export interface CloudAuditor {
   audit(approvedPayloadJson: string, model: string): Promise<CloudReport>;
+  /** Writes a draft accountant reply for one pseudonymized review pack alert item (aliases only). */
+  draftReply(packItemJson: string, model: string): Promise<string>;
 }
 
 export const BATCH_SIZE = 20;

@@ -149,3 +149,67 @@ test('without on-device AI a photo is refused and nothing is sent', async ({ pag
   await page.waitForTimeout(500);
   expect(requests).toEqual([]);
 });
+
+test('Accountant Review Pack: two browser contexts (client and accountant), firewall proof, Gemini draft reply with aliases, and local re-identification', async ({ browser }) => {
+  const clientCtx = await browser.newContext();
+  const accountantCtx = await browser.newContext();
+  try {
+    const clientPage = await clientCtx.newPage();
+    await start(clientPage, true);
+    await upload(clientPage, 'public/samples/acme-q3-gaps.csv');
+    await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+    await expect(clientPage.getByTestId('integrity-check')).toContainText('gap between rows 41–42');
+
+    // Open the duplicate anomaly dossier and mark it "Ask my accountant" with a question containing a real vendor name
+    const dupAlert = clientPage.getByTestId('alert-duplicate').first();
+    if ((await dupAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
+      await dupAlert.locator('.sig-btn').click();
+    }
+    await dupAlert.getByRole('button', { name: 'Ask my accountant' }).click();
+    await dupAlert.getByLabel('Decision note').fill('Did BRIGHTLINE PLUMBING double-charge us here?');
+
+    // Review pack in Privacy Firewall
+    await clientPage.getByTestId('review-pack-firewall').click();
+    await expect(clientPage.getByTestId('pack-firewall')).toBeVisible();
+    const packJson = (await clientPage.locator('pre.json').textContent()) ?? '';
+    expect(packJson).toContain('"schema": "zenith-ledger/accountant-pack@1"');
+    expect(packJson).toContain('"selectedAlertCount": 1');
+    expect(packJson).toContain('"selectedRowCount": 2');
+    for (const v of seeded) expect(packJson.toLowerCase(), v).not.toContain(v.toLowerCase());
+    expect(packJson).not.toContain('BRIGHTLINE PLUMBING');
+
+    // Approve and create expiring link
+    await clientPage.getByTestId('approve-pack').click();
+    await expect(clientPage.getByTestId('shared-pack-card')).toBeVisible();
+    const shareUrl = ((await clientPage.getByTestId('pack-share-url').textContent()) ?? '').trim();
+    expect(shareUrl).toContain('?pack=');
+
+    // Open the link in the separate accountant browser context (no account, no shared IndexedDB)
+    const accountantPage = await accountantCtx.newPage();
+    await accountantPage.goto(shareUrl);
+    await expect(accountantPage.getByTestId('accountant-view')).toBeVisible();
+    await expect(accountantPage.getByTestId('pack-item-duplicate')).toBeVisible();
+    const accountantText = (await accountantPage.locator('section').textContent()) ?? '';
+    expect(accountantText).not.toContain('BRIGHTLINE PLUMBING');
+    expect(accountantText).toMatch(/Vendor_[A-Z]+/);
+
+    // Accountant asks Gemini in the cloud for a draft reply (which sees only aliases) and sends it
+    await accountantPage.getByTestId('draft-reply-gemini').click();
+    await expect(accountantPage.getByTestId('accountant-reply-input')).toHaveValue(/Vendor_[A-Z]+/);
+    const draftValue = await accountantPage.getByTestId('accountant-reply-input').inputValue();
+    expect(draftValue).not.toContain('BRIGHTLINE PLUMBING');
+    await accountantPage.getByTestId('send-accountant-reply').click();
+    await expect(accountantPage.getByTestId('reply-saved-badge')).toBeVisible();
+
+    // Client refreshes responses and sees the real vendor name restored locally
+    await clientPage.getByTestId('refresh-pack-replies').click();
+    const replyCard = clientPage.getByTestId('reidentified-reply').first();
+    await expect(replyCard).toBeVisible();
+    const clientReplyText = (await replyCard.textContent()) ?? '';
+    expect(clientReplyText).toContain('BRIGHTLINE PLUMBING');
+    expect(clientReplyText).not.toMatch(/\bVendor_[A-Z]+\b/);
+  } finally {
+    await clientCtx.close();
+    await accountantCtx.close();
+  }
+});

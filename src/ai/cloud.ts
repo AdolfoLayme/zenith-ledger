@@ -49,5 +49,20 @@ export function createCloudAuditor(): CloudAuditor {
         }
       }
     },
+    async draftReply(packItemJson, modelName) {
+      const model = getGenerativeModel(getFirebase().ai, {
+        mode: InferenceMode.ONLY_IN_CLOUD,
+        inCloudParams: {
+          model: modelName,
+          systemInstruction:
+            'You are an accountant reviewing a single pseudonymized alert from a client review pack. ' +
+            'Vendors appear only as aliases like Vendor_A. Write a concise 2-sentence accounting response ' +
+            'that answers the client question, references the vendor only by its alias, and states the ' +
+            'recommended ledger treatment or supporting document required.',
+        },
+      });
+      const res = await model.generateContent(packItemJson);
+      return res.response.text().trim();
+    },
   };
 }

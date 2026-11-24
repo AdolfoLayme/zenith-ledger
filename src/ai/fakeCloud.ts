@@ -31,4 +31,20 @@ export const fakeCloud: CloudAuditor = {
     };
     return report;
   },
+  async draftReply(packItemJson) {
+    const item = JSON.parse(packItemJson) as {
+      type: string;
+      vendorAlias: string;
+      proof: string;
+      question: string;
+    };
+    await new Promise((r) => setTimeout(r, 200));
+    if (item.type === 'duplicate') {
+      return `Hold the second charge from ${item.vendorAlias} (${item.proof}) in Accounts Receivable — Disputed Charges until ${item.vendorAlias} confirms a refund or provides a second invoice.`;
+    }
+    if (item.type === 'balance_mismatch' || item.type === 'missing_page') {
+      return `Do not close the period yet: request the full bank statement PDF covering ${item.proof} to reconcile the missing balance movement.`;
+    }
+    return `Reviewed ${item.vendorAlias} (${item.proof}): keep the receipt or contract amendment attached to this entry for audit support.`;
+  },
 };

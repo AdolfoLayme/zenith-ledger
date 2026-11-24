@@ -98,4 +98,148 @@ describe.skipIf(!emulators)('firestore rules for the Receipt Vault', () => {
     await deleteDoc(at(alice, alice.uid));
     expect((await getDoc(at(alice, alice.uid))).exists()).toBe(false);
   });
+
+  describe('Accountant Review Pack rules (/packs/{packId})', () => {
+    const nowMs = Date.now();
+    const packHash = 'ab'.repeat(32);
+    const packId = `${nowMs}-${packHash.slice(0, 16)}`;
+    const validPackDoc = {
+      schema: 'zenith-ledger/accountant-pack@1',
+      packId,
+      createdAt: new Date(nowMs).toISOString(),
+      expiresAt: new Date(nowMs + 3600_000).toISOString(),
+      expiresAtMs: nowMs + 3600_000,
+      currency: 'USD',
+      periodFrom: '2025-07-01',
+      periodTo: '2025-09-30',
+      totalStatementRows: 117,
+      selectedAlertCount: 1,
+      selectedRowCount: 2,
+      hash: packHash,
+      items: [
+        {
+          alertId: 'anomaly:duplicate:Vendor_C:-18420:2025-08-10:2025-08-11',
+          kind: 'anomaly',
+          type: 'duplicate',
+          severity: 'high',
+          vendorAlias: 'Vendor_C',
+          category: 'Supplies',
+          title: 'Possible duplicate · Vendor_C',
+          proof: 'Vendor_C charged -$184.20 twice within 1 day(s)',
+          ruleName: 'Duplicate charge within window',
+          thresholdSummary: 'duplicateWindowDays <= 3 days',
+          computedSummary: 'Repeated amount: -$184.20 · Interval: 1 day(s)',
+          question: 'Did Vendor_C issue a credit memo?',
+          rows: [
+            {
+              line: 41,
+              date: '2025-08-10',
+              vendorAlias: 'Vendor_C',
+              category: 'Supplies',
+              amountCents: -18420,
+              balanceCents: 120410,
+            },
+            {
+              line: 42,
+              date: '2025-08-11',
+              vendorAlias: 'Vendor_C',
+              category: 'Supplies',
+              amountCents: -18420,
+              balanceCents: 101990,
+            },
+          ],
+        },
+      ],
+    };
+
+    it('lets a client create a valid pack and an unauthenticated accountant read it and post a reply', async () => {
+      await setDoc(doc(alice.db, 'packs', packId), { ...validPackDoc, uid: alice.uid });
+      // Unauthenticated accountant reads the pack via the capability link
+      const snap = await getDoc(doc(anon.db, 'packs', packId));
+      expect(snap.exists()).toBe(true);
+      expect(snap.data()?.selectedRowCount).toBe(2);
+
+      // Accountant posts a reply with aliases only, without needing an account
+      const alertId = validPackDoc.items[0].alertId;
+      const replyDoc = {
+        alertId,
+        packId,
+        reply: 'Keep the second Vendor_C charge in disputed receivables until refunded.',
+        repliedAt: new Date(nowMs + 60_000).toISOString(),
+        author: 'Accountant',
+      };
+      await setDoc(doc(anon.db, 'packs', packId, 'replies', alertId), replyDoc);
+
+      const replies = await getDocs(collection(alice.db, 'packs', packId, 'replies'));
+      expect(replies.size).toBe(1);
+      expect(replies.docs[0].data().reply).toContain('Vendor_C');
+    });
+
+    it('forbids listing all packs without knowing a packId', async () => {
+      await denied(getDocs(collection(anon.db, 'packs')));
+    });
+
+    it('rejects a pack with raw descriptions, extra fields, real vendor names, or an already-expired timestamp', async () => {
+      const badId = (n: number) => `${nowMs + n}-${packHash.slice(0, 16)}`;
+      // Extra top-level raw field
+      await denied(
+        setDoc(doc(alice.db, 'packs', badId(1)), {
+          ...validPackDoc,
+          packId: badId(1),
+          rawDescriptions: ['POS DEBIT DELTA OFFICE DEPOT'],
+        }),
+      );
+      // Raw description inside a row
+      await denied(
+        setDoc(doc(alice.db, 'packs', badId(2)), {
+          ...validPackDoc,
+          packId: badId(2),
+          items: [
+            {
+              ...validPackDoc.items[0],
+              rows: [{ ...validPackDoc.items[0].rows[0], description: 'POS DEBIT DELTA OFFICE DEPOT' }],
+            },
+          ],
+        }),
+      );
+      // Real vendor name instead of Vendor_X alias
+      await denied(
+        setDoc(doc(alice.db, 'packs', badId(3)), {
+          ...validPackDoc,
+          packId: badId(3),
+          items: [{ ...validPackDoc.items[0], vendorAlias: 'DELTA OFFICE DEPOT' }],
+        }),
+      );
+      // Expired pack (expiresAtMs in the past)
+      await denied(
+        setDoc(doc(alice.db, 'packs', badId(4)), {
+          ...validPackDoc,
+          packId: badId(4),
+          expiresAtMs: nowMs - 60_000,
+        }),
+      );
+      // Forged uid from another user
+      await denied(
+        setDoc(doc(alice.db, 'packs', badId(5)), {
+          ...validPackDoc,
+          packId: badId(5),
+          uid: bob.uid,
+        }),
+      );
+    });
+
+    it('rejects replies with extra fields', async () => {
+      const alertId = validPackDoc.items[0].alertId;
+      await denied(
+        setDoc(doc(anon.db, 'packs', packId, 'replies', alertId), {
+          alertId,
+          packId,
+          reply: 'Looks fine.',
+          repliedAt: new Date(nowMs + 120_000).toISOString(),
+          author: 'Accountant',
+          rawVendor: 'DELTA OFFICE DEPOT',
+        }),
+      );
+    });
+  });
 });

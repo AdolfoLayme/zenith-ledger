@@ -30,9 +30,83 @@ service cloud.firestore {
         && docId.matches('^[0-9]{10,15}-' + d.hash[0:16] + '$');
     }
 
+    function validPackItem(item) {
+      return item is map
+        && item.keys().hasOnly(['alertId', 'kind', 'type', 'severity', 'vendorAlias', 'category', 'title', 'proof', 'ruleName', 'thresholdSummary', 'computedSummary', 'question', 'rows'])
+        && item.keys().hasAll(['alertId', 'kind', 'type', 'severity', 'vendorAlias', 'category', 'title', 'proof', 'ruleName', 'thresholdSummary', 'computedSummary', 'question', 'rows'])
+        && item.alertId is string && item.alertId.size() >= 3 && item.alertId.size() <= 160
+        && (item.kind == 'anomaly' || item.kind == 'integrity')
+        && item.type is string && item.type.size() >= 1 && item.type.size() <= 40
+        && (item.severity == 'high' || item.severity == 'medium' || item.severity == 'low')
+        && item.vendorAlias is string && item.vendorAlias.matches('^(Vendor_[A-Z]+|Statement)$')
+        && item.category is string && item.category.size() >= 1 && item.category.size() <= 40
+        && item.title is string && item.title.size() >= 1 && item.title.size() <= 160
+        && item.proof is string && item.proof.size() >= 1 && item.proof.size() <= 300
+        && item.ruleName is string && item.ruleName.size() >= 1 && item.ruleName.size() <= 120
+        && item.thresholdSummary is string && item.thresholdSummary.size() >= 1 && item.thresholdSummary.size() <= 160
+        && item.computedSummary is string && item.computedSummary.size() >= 1 && item.computedSummary.size() <= 400
+        && item.question is string && item.question.size() >= 1 && item.question.size() <= 500
+        && item.rows is list && item.rows.size() >= 1 && item.rows.size() <= 20
+        && item.rows[0] is map
+        && item.rows[0].keys().hasOnly(['line', 'page', 'date', 'vendorAlias', 'category', 'amountCents', 'balanceCents'])
+        && item.rows[0].keys().hasAll(['line', 'date', 'vendorAlias', 'category', 'amountCents', 'balanceCents'])
+        && item.rows[0].line is int && item.rows[0].line >= 1
+        && item.rows[0].date is string && item.rows[0].date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && item.rows[0].vendorAlias is string && item.rows[0].vendorAlias.matches('^Vendor_[A-Z]+$')
+        && item.rows[0].category is string && item.rows[0].category.size() >= 1 && item.rows[0].category.size() <= 40
+        && item.rows[0].amountCents is int
+        && (item.rows[0].balanceCents == null || item.rows[0].balanceCents is int);
+    }
+
+    function validPack(packId, d) {
+      return d.keys().hasOnly(['schema', 'packId', 'createdAt', 'expiresAt', 'expiresAtMs', 'currency', 'periodFrom', 'periodTo', 'totalStatementRows', 'selectedAlertCount', 'selectedRowCount', 'hash', 'items', 'uid'])
+        && d.keys().hasAll(['schema', 'packId', 'createdAt', 'expiresAt', 'expiresAtMs', 'currency', 'periodFrom', 'periodTo', 'totalStatementRows', 'selectedAlertCount', 'selectedRowCount', 'hash', 'items'])
+        && d.schema == 'zenith-ledger/accountant-pack@1'
+        && d.packId == packId
+        && d.createdAt is string && d.createdAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$')
+        && d.expiresAt is string && d.expiresAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$')
+        && d.expiresAtMs is int
+        && d.expiresAtMs > request.time.toMillis()
+        && d.expiresAtMs <= request.time.toMillis() + 2592000000
+        && d.currency is string && d.currency.size() == 3
+        && d.periodFrom is string && d.periodFrom.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.periodTo is string && d.periodTo.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && validCount(d.totalStatementRows) && d.totalStatementRows >= 1
+        && d.selectedAlertCount is int && d.selectedAlertCount >= 1 && d.selectedAlertCount <= 50
+        && d.selectedRowCount is int && d.selectedRowCount >= 1 && d.selectedRowCount <= 200
+        && d.hash is string && d.hash.size() == 64 && d.hash.matches('^[0-9a-f]{64}$')
+        && d.items is list && d.items.size() == d.selectedAlertCount
+        && validPackItem(d.items[0])
+        && (!('uid' in d) || (request.auth != null && d.uid == request.auth.uid))
+        && packId.matches('^[0-9]{10,15}-' + d.hash[0:16] + '$');
+    }
+
+    function validReply(packId, replyId, d) {
+      let parent = get(/databases/$(database)/documents/packs/$(packId)).data;
+      return parent.expiresAtMs > request.time.toMillis()
+        && d.keys().hasOnly(['alertId', 'packId', 'reply', 'repliedAt', 'author'])
+        && d.keys().hasAll(['alertId', 'packId', 'reply', 'repliedAt', 'author'])
+        && d.packId == packId
+        && d.alertId == replyId
+        && d.alertId is string && d.alertId.size() >= 3 && d.alertId.size() <= 160
+        && d.reply is string && d.reply.size() >= 1 && d.reply.size() <= 2000
+        && d.repliedAt is string && d.repliedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$')
+        && d.author is string && d.author.size() >= 1 && d.author.size() <= 80;
+    }
+
     match /users/{uid}/receipts/{docId} {
       allow read, delete: if isOwner(uid);
       allow create: if isOwner(uid) && validReceipt(docId, request.resource.data);
+    }
+
+    match /packs/{packId} {
+      allow get: if resource.data.expiresAtMs > request.time.toMillis();
+      allow create: if validPack(packId, request.resource.data);
+
+      match /replies/{replyId} {
+        allow read: if get(/databases/$(database)/documents/packs/$(packId)).data.expiresAtMs > request.time.toMillis();
+        allow create, update: if validReply(packId, replyId, request.resource.data);
+      }
     }
   }
 }

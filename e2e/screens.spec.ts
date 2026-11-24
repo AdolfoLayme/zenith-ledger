@@ -45,5 +45,42 @@ for (const [name, viewport] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.getByRole('button', { name: 'Delete receipts and alias maps' }).click();
     await expect(page.getByText('No data has left this device.')).toBeVisible();
     await shot('5c-receipts-empty');
+
+    // Phase 2 screens: Statement Integrity Check, Evidence Dossier, Accountant Review Pack Firewall, Accountant View, and Local Re-identification
+    await page.getByRole('button', { name: 'Zenith Ledger' }).click();
+    await page.getByTestId('file').setInputFiles('public/samples/acme-q3-gaps.csv');
+    await expect(page.getByTestId('integrity-check')).toContainText('gap between rows 41–42');
+    const dupAlert = page.getByTestId('alert-duplicate').first();
+    if ((await dupAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
+      await dupAlert.locator('.sig-btn').click();
+    }
+    await dupAlert.getByRole('button', { name: 'Ask my accountant' }).click();
+    await dupAlert.getByLabel('Decision note').fill('Did BRIGHTLINE PLUMBING double-charge us on this order?');
+    await shot('6a-integrity-and-dossier');
+
+    await page.getByTestId('review-pack-firewall').click();
+    await expect(page.getByTestId('pack-firewall')).toBeVisible();
+    await shot('6b-pack-firewall');
+
+    await page.getByTestId('approve-pack').click();
+    await expect(page.getByTestId('shared-pack-card')).toBeVisible();
+    await shot('6c-shared-pack-link');
+
+    const shareUrl = ((await page.getByTestId('pack-share-url').textContent()) ?? '').trim();
+    const accPage = await context.newPage();
+    await accPage.setViewportSize(viewport);
+    await accPage.goto(shareUrl);
+    await expect(accPage.getByTestId('accountant-view')).toBeVisible();
+    await expect(accPage.getByTestId('pack-item-duplicate')).toBeVisible();
+    await accPage.getByTestId('draft-reply-gemini').click();
+    await expect(accPage.getByTestId('accountant-reply-input')).toHaveValue(/Vendor_[A-Z]+/);
+    await accPage.getByTestId('send-accountant-reply').click();
+    await expect(accPage.getByTestId('reply-saved-badge')).toBeVisible();
+    await accPage.screenshot({ path: `${dir}/${name}-6d-accountant-view.png`, fullPage: true });
+    await accPage.close();
+
+    await page.getByTestId('refresh-pack-replies').click();
+    await expect(page.getByTestId('reidentified-reply')).toBeVisible();
+    await shot('6e-client-reidentified-reply');
   });
 }

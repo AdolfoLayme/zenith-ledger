@@ -1,40 +1,85 @@
 # Zenith Ledger
 
-Audit your books with AI without your bank data ever leaving your laptop.
+**The accountant gets the proof, not your statement.**
 
-**Live demo:** https://zenith-ledger-app.web.app (desktop Chrome for Gemini Nano; any browser runs the strict mode)
+**Live demo:** https://zenith-ledger-app.web.app (desktop Chrome for Gemini Nano; any browser runs strict mode and the Accountant View)
 
-Zenith Ledger takes a bank statement (CSV, a photo of a statement or receipt, or a transaction table on an open web page via the Chrome extension), finds and replaces the sensitive parts in your browser, computes the anomalies with plain deterministic code, and shows you the exact JSON that would go to the cloud. Only after you click **Approve & send** does Gemini write the audit narrative and the questions for your accountant. The names come back as aliases (`Vendor_A`) and your browser turns them back into real names locally.
+When a small business or freelancer spots a questionable charge or a balance gap in a bank export, the usual options are either sending the entire raw bank statement (with every card number, client name, IBAN, and unrelated transaction) to an accountant or a cloud LLM, or doing manual spreadsheet reconciliation.
+
+Zenith Ledger turns a raw statement (CSV, statement/receipt photo, or an open online-banking web table via the Chrome extension) into **verifiable audit evidence on your device**:
+
+1. **Deterministic Statement Integrity Check:** validates running balances row-by-row, flags unusual chronological date gaps, catches exact duplicate rows from export errors, checks whether the statement covers the declared period, and detects missing pages (balance jumps across page boundaries) in multi-page photo reads — printing the exact reconciliation discrepancy (`expected 1,204.10, statement says 1,104.10, gap between rows 41–42`).
+2. **Evidence Dossier per Alert:** every anomaly and integrity alert opens a local dossier showing its exact origin rows (line and page numbers), the applied rule and its active **Firebase Remote Config** threshold, the computed metrics, Gemini Nano photo read provenance (including whether the user edited the row in **Check what was read**), and a decision (`Explained`, `Ask my accountant`, or `Ignore`) with a note persisted in **IndexedDB**.
+3. **Accountant Review Pack:** mark only the alerts you want your accountant to inspect as `Ask my accountant`. Zenith packages **only those origin rows**, pseudonymized with consistent aliases (`Vendor_A`, `Person_1`), plus the computed proof and your question. You inspect the exact JSON and its SHA-256 in the **Privacy Firewall**, then share an **expiring capability link** backed by **Cloud Firestore** security rules.
+4. **No-Account Accountant View & Local Re-identification:** your accountant opens the link in the same web app (`?pack=<packId>`) without creating an account, sees only aliases, amounts, and computed evidence, can ask **Gemini in the cloud (`ONLY_IN_CLOUD`)** for a draft accounting reply (which also sees only aliases), and submits their response. Your browser fetches the response and restores the real names locally from IndexedDB. **Real names never travel.**
+5. **On-Device Accountant Export:** export the full case (alerts, computed evidence, origin rows, user decisions, and accountant replies) as CSV or JSON generated entirely on your laptop.
+
+## Architecture: What Runs On-Device, In the Cloud, and In Firestore
+
+```mermaid
+flowchart LR
+  subgraph Device["Client Browser / Chrome Extension (On-Device)"]
+    Input["CSV / Photo / DOM Table"]
+    Nano["Gemini Nano (ONLY_ON_DEVICE)\nEntity extraction, photo reading,\noffline summary"]
+    Core["Deterministic TypeScript Engine\nPII detectors, integer-cent math,\nStatement Integrity Check,\nEvidence Dossiers"]
+    IDB[("IndexedDB\nAlias map (Vendor_A -> real),\nDecisions & notes,\nData Receipts, Dossiers")]
+    FW["Privacy Firewall\nExact JSON preview + SHA-256\nHuman approval gate"]
+    Export["Local Case Export\nCSV & JSON generated on device"]
+    ReID["Local Re-identification\nRestores real names in cloud\nreports & accountant replies"]
+  end
+
+  subgraph CloudAI["Firebase AI Logic (ONLY_IN_CLOUD)"]
+    GeminiAudit["Gemini Cloud Auditor\nSees approved aggregate payload\nor single alias PackItem only"]
+  end
+
+  subgraph FirestoreDB["Cloud Firestore (Strict Allowlist Rules)"]
+    PackDoc[("Accountant Review Pack\n/packs/{packId} + /replies/{alertId}\nSelected rows with aliases only,\nexpiresAt enforced in rules")]
+    VaultDoc[("Opt-in Receipt Vault\n/users/{uid}/receipts/{docId}\nSHA-256, timestamp, field names,\ncounters only")]
+  end
+
+  subgraph AccountantBrowser["Accountant Browser (No Account Required)"]
+    AccView["Accountant View (?pack=id)\nSees aliases, amounts & proof;\nwrites or drafts reply per alert"]
+  end
+
+  Input --> Nano
+  Input --> Core
+  Nano --> Core
+  Core <--> IDB
+  Core --> Export
+  Core --> FW
+  FW -- "Approved aggregate payload\n(aliases + signals)" --> GeminiAudit
+  FW -- "Approved Review Pack\n(selected alias rows + proof)" --> PackDoc
+  FW -- "Opt-in metadata sync" --> VaultDoc
+  PackDoc <--> AccView
+  AccView -- "Draft reply request\n(alias PackItem only)" --> GeminiAudit
+  GeminiAudit --> ReID
+  PackDoc -- "Accountant replies\n(with Vendor_A)" --> ReID
+  IDB --> ReID
+```
+
+| Boundary | Runs / Lives | Sees | Never Sees |
+| --- | --- | --- | --- |
+| **Deterministic Core (`src/core/`)** | Browser / Extension | Raw rows (CSV, photo review, or DOM table) | Network |
+| **Gemini Nano (`ONLY_ON_DEVICE`)** | Desktop Chrome (on device) | Raw descriptions in batches of 20, statement & receipt photos, anonymized offline overview | Cloud fallback (`PREFER_ON_DEVICE` is banned by `src/ai/policy.test.ts`) |
+| **IndexedDB (`src/store/`)** | Browser local storage | Alias map (`Vendor_A -> real name`), Evidence Dossiers, alert decisions & notes, Data Receipts | Remote servers |
+| **Gemini Cloud (`ONLY_IN_CLOUD`)** | Firebase AI Logic | User-approved aggregate audit payload OR a single pseudonymized `PackItem` for drafting an accountant reply | Raw descriptions, real names, cards, IBANs, emails, phones, unselected rows |
+| **Cloud Firestore (`firestore.rules`)** | Firebase Cloud Firestore | **Accountant Review Pack** (`/packs/{packId}`: only the rows of alerts marked `Ask my accountant`, with `Vendor_A` aliases, computed proof, and `expiresAt`) and **Receipt Vault** (`/users/{uid}/receipts/{docId}`: send time, SHA-256, field names, counters) | Real merchant or person names, raw descriptions, full statement rows, or expired packs |
 
 ## Platforms
 
-- **Web application (`src/`):** single-page app hosted on Firebase Hosting. Runs hybrid on-device + cloud AI in desktop Chrome with Gemini Nano, and deterministic strict mode in any desktop or mobile browser.
-- **Chrome Extension, Manifest V3 (`extension/`):** **Audit with Zenith** side panel that extracts the transaction table directly from the DOM of the open web page (for example, an online banking activity page) or accepts a dropped CSV statement, and runs the exact same `src/core` and `src/ai` pipeline on your device before anything reaches the Privacy Firewall.
-
-## Why hybrid
-
-Each layer is an explicit choice, not an automatic fallback.
-
-| Layer | Runs | Sees | Does |
-| --- | --- | --- | --- |
-| Rules (TypeScript) | Browser / Extension | Raw rows (CSV, photo review, or DOM table) | Parsing, PII detection (Luhn, IBAN mod 97, SSN, EIN, email, phone, token URLs), aliasing, all money math in integer cents, anomaly detection |
-| Gemini Nano, `ONLY_ON_DEVICE` | Browser / Extension (Chrome) | Raw descriptions in batches of 20, statement & receipt photos | Finds person and merchant names, assigns categories, reads rows/fields from JPEG/PNG photos, writes the offline summary (structured JSON output via `responseConstraint`) |
-| Gemini, `ONLY_IN_CLOUD` | Firebase AI Logic | Approved payload only | Explains signals, ranks them, writes the narrative and accountant questions (JSON schema output) |
-
-We never use `PREFER_ON_DEVICE` for raw text. If Nano is missing, that mode would quietly send the text to the cloud, which is the leak this app is built to prevent. Without Nano the app runs in strict mode: detectors only, and free-text descriptions are never part of what is sent. A test (`src/ai/policy.test.ts`) fails if a fallback mode appears in `src/ai`.
-
-Photos follow the same rule. A statement photo is raw, unredacted data, so only Gemini Nano may read it. Without Nano the app refuses the photo with a clear message and it is not uploaded or sent anywhere (`src/ai/photo.test.ts` checks that no network call happens).
+- **Web application (`src/`):** single-page app hosted on Firebase Hosting (https://zenith-ledger-app.web.app). Includes the client audit workspace, Evidence Dossiers, Privacy Firewall, Receipt Vault, local CSV/JSON case exporter, and the no-account **Accountant View** (`?pack=<packId>`).
+- **Chrome Extension, Manifest V3 (`extension/`):** **Audit with Zenith** side panel that extracts the transaction table directly from the DOM of the open web page (for example, an online banking activity page) or accepts a dropped CSV statement, and runs the exact same `src/core` and `src/ai` pipeline on your device.
 
 ## Firebase products used
 
 | Firebase product | What it does in Zenith Ledger |
 | --- | --- |
-| **Firebase AI Logic (`firebase/ai`)** | Drives both inference layers through the Gemini Developer API: `InferenceMode.ONLY_ON_DEVICE` for local entity extraction, photo reading and offline summaries with Gemini Nano, and `InferenceMode.ONLY_IN_CLOUD` with `responseSchema` for the user-approved anonymized audit payload. |
+| **Firebase AI Logic (`firebase/ai`)** | Drives both inference layers through the Gemini Developer API: `InferenceMode.ONLY_ON_DEVICE` for local entity extraction, photo reading and offline summaries with Gemini Nano, and `InferenceMode.ONLY_IN_CLOUD` for the user-approved anonymized audit payload and for drafting accountant replies on pseudonymized pack items. |
 | **Firebase App Check (`firebase/app-check`)** | Protects Firebase AI Logic and backend calls with **reCAPTCHA Enterprise** on the web app, and uses the **App Check debug token flow** in local development and inside the Manifest V3 Chrome extension. |
-| **Firebase Remote Config (`firebase/remote-config`)** | Configures anomaly detection thresholds (`anomaly_thresholds`: duplicate window days, minimum price-increase percent, outlier z-score and sample floor, round-transfer minimum and multiple, weekend spend minimum), the cloud Gemini model name (`cloud_model`), and feature flags (`feature_flags`: `receiptVault`, `offlineSummary`, `photoInput`) without a new release (`remoteconfig.template.json`, `src/config/`). Validated defaults live in code so the app works identically offline. |
-| **Firebase Authentication (`firebase/auth`)** | Anonymous sign-in for the opt-in **Receipt Vault**, scoping every synced Data Receipt to the user's own `uid` without asking for an email or password. |
-| **Cloud Firestore (`firebase/firestore`)** | Powers the opt-in **Receipt Vault** (`src/vault/`, `firestore.rules`). Syncs only receipt metadata (send time, payload SHA-256, allowlisted payload field names and counters) across devices — never descriptions, rows or alias maps. Server security rules enforce owner-only access (`request.auth.uid == uid`) and reject any field, type or length outside the metadata allowlist, so raw data cannot be stored even by a modified client. |
-| **Firebase Hosting** | Serves the web app at https://zenith-ledger-app.web.app with SPA rewrites, security headers (`X-Content-Type-Options`, `Permissions-Policy`) and immutable asset caching (`firebase.json`). |
+| **Firebase Remote Config (`firebase/remote-config`)** | Configures anomaly detection thresholds (`anomaly_thresholds`: duplicate window days, minimum price-increase percent, outlier z-score and sample floor, round-transfer minimum and multiple, weekend spend minimum), the cloud Gemini model name (`cloud_model`), and feature flags (`feature_flags`: `receiptVault`, `offlineSummary`, `photoInput`) without a new release (`remoteconfig.template.json`, `src/config/`). Displayed inside every alert's Evidence Dossier. |
+| **Firebase Authentication (`firebase/auth`)** | Anonymous sign-in for the opt-in **Receipt Vault** and **Accountant Review Pack** creation, scoping receipts to the owner's `uid` without asking for an email or password. |
+| **Cloud Firestore (`firebase/firestore`)** | Powers two server-enforced collections in `firestore.rules`: (1) **Accountant Review Packs** (`/packs/{packId}` and `/packs/{packId}/replies/{alertId}`), validating strict field allowlists, `Vendor_[A-Z]+` alias patterns, and `expiresAtMs > request.time.toMillis()` so raw statement data cannot be stored and expired links cannot be read or replied to; and (2) the opt-in **Receipt Vault** (`/users/{uid}/receipts/{docId}`), storing only receipt metadata. |
+| **Firebase Hosting** | Serves the web app and Accountant View at https://zenith-ledger-app.web.app with SPA rewrites, security headers (`X-Content-Type-Options`, `Permissions-Policy`) and immutable asset caching (`firebase.json`). |
 
 ## Run it
 
@@ -43,65 +88,30 @@ pnpm i
 pnpm dev
 ```
 
-Demo without Firebase, using scripted stand-ins for both models (the privacy logic is the real code):
+Demo without Firebase, using scripted stand-ins for both models (the privacy, integrity, dossier, and pack logic is the real code):
 
 ```
 VITE_DEMO_FAKE_AI=1 pnpm dev
 ```
 
-Real Gemini: copy `.env.example` to `.env`, fill in your Firebase web config, enable Firebase AI Logic and App Check in the console. In development the App Check debug provider is used; register the debug token printed in the browser console.
-
-Gemini Nano: desktop Chrome 139 or newer. Click **Enable on-device AI** in the app; the first download (about 4 GB) takes a few minutes and needs that click. Once downloaded, the app starts the model by itself on later visits. If the button reports the model as unavailable, enable `chrome://flags/#prompt-api-for-gemini-nano-multimodal-input` and restart Chrome. Tested on Chrome 157 (Linux).
-
 Other commands:
 
-- `pnpm test`: unit tests and the design rules written as tests (`src/core/privacy.rules.test.ts`, `src/ai/policy.test.ts`, `src/config/config.test.ts`, `src/vault/receipt.test.ts`, `src/vault/sync.test.ts`, `extension/extractTable.test.ts`).
-- `pnpm test:rules`: runs the 20 Firestore security rule tests (`src/vault/rules.test.ts`) against the local Firebase Auth and Firestore emulators.
-- `pnpm e2e`: Playwright UI tests of the web flow and the packaged Chrome MV3 extension in a Chromium-based browser with the scripted stand-ins. Set `BROWSER_PATH` if your browser is not `/usr/bin/brave`. `SHOTS_DIR=<dir> pnpm e2e screens` also saves desktop and mobile screenshots.
+- `pnpm test`: unit tests and design rules written as tests (`src/core/integrity.test.ts`, `src/core/dossier.test.ts`, `src/pack/pack.test.ts`, `src/core/export.test.ts`, `src/core/privacy.rules.test.ts`, `src/ai/policy.test.ts`, `src/config/config.test.ts`, `src/vault/receipt.test.ts`, `src/vault/sync.test.ts`, `extension/extractTable.test.ts`).
+- `pnpm test:rules`: runs the 24 Firestore security rule tests (`src/vault/rules.test.ts`) for both the Receipt Vault and Accountant Review Packs against the local Firebase Auth and Firestore emulators.
+- `pnpm e2e`: Playwright end-to-end tests of the web flow, the two-browser-context Client → Accountant Review Pack → Accountant Reply → Client Local Re-identification flow (`e2e/flow.spec.ts`), and the packaged Chrome MV3 extension (`e2e/extension.spec.ts`).
 - `pnpm build`: type check and production web build into `dist/`.
 - `pnpm build:ext`: type check and production Chrome MV3 extension build into `extension/dist/`.
-- `pnpm samples` regenerates the synthetic CSV statements and `pnpm photos` the synthetic statement and receipt photos in `public/samples`. All personal data in them is fake. The sample photos also carry their rows in a PNG text chunk, which is how the scripted stand-in "reads" them in demo mode; real Gemini Nano reads the pixels.
+- `pnpm samples`: regenerates the synthetic CSV statements (`acme-q3.csv`, `acme-q4.csv`, and `acme-q3-gaps.csv` with running balances and seeded integrity discrepancies) in `public/samples/`.
 
 ## Try the Chrome Extension ("Audit with Zenith")
 
 1. Build the extension into `extension/dist/`:
-
-```
-pnpm build:ext
-```
-
-(Or build with the scripted model stand-ins so it runs without a Firebase project: `VITE_DEMO_FAKE_AI=1 pnpm build:ext`.)
-
-2. Open `chrome://extensions` in desktop Chrome, enable **Developer mode** (top right), click **Load unpacked**, and choose the `extension/dist` directory.
-3. Open a page containing a transaction table — for example https://zenith-ledger-app.web.app/samples/bank-statement.html (or `http://localhost:5173/samples/bank-statement.html` while `pnpm dev` is running).
+   ```
+   pnpm build:ext
+   ```
+2. Open `chrome://extensions` in desktop Chrome, enable **Developer mode**, click **Load unpacked**, and choose `extension/dist`.
+3. Open a page containing a transaction table — for example https://zenith-ledger-app.web.app/samples/bank-statement.html.
 4. Click the **Zenith Ledger — Audit with Zenith** toolbar button to open the side panel, then click **Audit table on this page** (or drop a CSV statement directly into the side panel).
-5. The table is extracted from the active tab's DOM on your device and goes through the same Local analysis → Privacy Firewall → Audit report flow.
-6. When running against live Firebase AI Logic (`VITE_DEMO_FAKE_AI=0`), the extension activates Firebase App Check in debug-token mode: open the side panel's DevTools console once, copy the printed debug token, and register it under **Firebase Console → App Check → Apps → Manage debug tokens**.
-
-## Deploy to Firebase
-
-`firebase.json` configures Hosting (`dist/`), Remote Config (`remoteconfig.template.json`), and Firestore security rules (`firestore.rules`). `.firebaserc` points at the demo project (`zenith-ledger-app`); use your own id for your deploy.
-
-1. Create a Firebase project, enable **AI Logic** (Gemini Developer API), **Remote Config**, **Firestore**, and **Authentication** (Anonymous sign-in provider), and register a web app. App Check is enforced for AI Logic: create a reCAPTCHA Enterprise key and register it as the App Check provider for the web app.
-2. Put the web config and the reCAPTCHA Enterprise site key in `.env` (see `.env.example`), with `VITE_DEMO_FAKE_AI=0`.
-3. Put your project id in `.firebaserc`.
-4. Build and deploy:
-
-```
-pnpm build
-pnpm dlx firebase-tools@latest login
-pnpm dlx firebase-tools@latest deploy --only hosting,firestore:rules,remoteconfig
-```
-
-To check Hosting locally without an account: `pnpm dlx firebase-tools@latest emulators:start --only hosting --project demo-zenith-ledger`.
-
-## What you see
-
-1. Drop a CSV or a statement/receipt photo, try a sample, or click **Audit table on this page** in the Chrome extension side panel. Photos need on-device AI turned on.
-2. Local analysis: sensitive values highlighted with their alias, counters, anomalies. Works offline: without a connection, Gemini Nano writes a short summary from the anonymized overview (aliases and computed numbers only), and names are restored locally for display.
-3. Privacy Firewall: side-by-side before and after, the exact JSON, its SHA-256, counters (found, replaced, raw descriptions sent = 0). If you are offline it says deep analysis waits for the connection.
-4. Audit report: findings with real names restored locally, questions for your accountant, and a Data Receipt (time, hash, fields sent, counters) saved in IndexedDB.
-5. Data Receipts (top right): every approved send with its time, SHA-256 and fields. **Sync receipts** (opt-in Receipt Vault) syncs only the allowlisted receipt metadata across devices via anonymous Firebase Auth and Firestore. **Delete all** removes the receipts and the stored alias maps from this browser.
 
 ## Built during the submission period
 
@@ -111,12 +121,14 @@ This repository was started on Nov 10, 2026 (one day before the #BuildHybridAI 2
 - Initial project setup, synthetic CSV statement generator, deterministic CSV parser, PII detectors, aliasing, anomaly math, payload builder with unit tests, the initial four-step web UI with scripted model stand-ins, and an untested `firebase/ai` wrapper.
 
 **Built during the submission period (Nov 11 – Nov 30, 2026):**
-- **Live Firebase project & end-to-end hybrid integration:** configured Firebase AI Logic (`ONLY_ON_DEVICE` and `ONLY_IN_CLOUD`), App Check with reCAPTCHA Enterprise and debug token support, and Firebase Hosting deployment (https://zenith-ledger-app.web.app).
-- **Real Gemini Nano on-device hardening:** auto-starts Nano when already downloaded, reports batch progress, declares English input/output in `createOptions`, matches model answers by line number, validates that any person or merchant named by the model actually appears in that row, deduplicates repeated descriptions (cutting on-device calls by ~38%), restores names even when a model pluralizes an alias (`Vendors_C`), and displays an explicit notice if on-device reading fails instead of silently dropping to strict mode.
-- **On-device statement & receipt photo pipeline:** added synthetic photo generators, separate statement vs. receipt photo prompts and JSON schemas for Gemini Nano (`ONLY_ON_DEVICE`), an interactive **Check what was read** review screen before analysis, and a detector for misread card numbers with missing digits.
-- **Firebase Remote Config (`src/config/`, `remoteconfig.template.json`):** live configuration of anomaly thresholds (`duplicateWindowDays`, `priceIncreaseMinPercent`, `outlierZ`, `outlierMinSamples`, `roundTransferMinCents`, `roundTransferMultipleCents`, `weekendMinCents`), cloud model name (`cloud_model`), and feature flags (`receiptVault`, `offlineSummary`, `photoInput`) with validated in-code fallbacks for offline use.
-- **Opt-in Receipt Vault (`src/vault/`, `firestore.rules`):** cross-device synchronization of Data Receipts (timestamp, payload SHA-256, field names, and counters — never statement content or alias maps) using anonymous Firebase Auth and Cloud Firestore, backed by strict server-side Firestore security rules tested against the Firebase Emulator Suite (`src/vault/rules.test.ts`).
-- **Chrome Extension MV3 ("Audit with Zenith", `extension/`):** side-panel extension reusing `src/core` and `src/ai` to audit transaction tables extracted directly from the active web page's DOM (plus dropped CSV files), built with Vite (`pnpm build:ext`) and verified with an end-to-end Playwright Chromium extension test (`e2e/extension.spec.ts`).
+- **Statement Integrity Check (`src/core/integrity.ts`, `scripts/generate-statement.ts`):** 100% deterministic local verification of running balances, unusual chronological date gaps, exact duplicate rows from export errors, declared period coverage, and missing pages (balance jumps across page boundaries) in multi-page photo reads, reporting the exact discrepancy (`expected 1,204.10, statement says 1,104.10, gap between rows 41–42`), plus a new synthetic sample with seeded balance and sequence gaps (`acme-q3-gaps.csv`).
+- **Evidence Dossier per Alert (`src/core/dossier.ts`, `src/store/receipts.ts`):** interactive dossier panel for every anomaly and integrity alert showing exact origin rows (line and page numbers), the applied rule and its active Remote Config threshold, computed evidence metrics, Gemini Nano photo read provenance (what Nano read vs. whether the user corrected it in **Check what was read**), and user decisions (`Explained`, `Ask my accountant`, `Ignore`) with notes persisted in IndexedDB.
+- **Accountant Review Pack & No-Account Accountant View (`src/pack/`, `firestore.rules`, `src/ui/App.tsx`):** selective packaging of only the alerts marked `Ask my accountant` and their pseudonymized origin rows (`Vendor_A`), previewed with exact JSON and SHA-256 in the Privacy Firewall, shared via an expiring link backed by Cloud Firestore security rules (enforcing field allowlists, alias patterns, and `expiresAt`), opened in a no-account Accountant View where the accountant can reply per alert or request a draft reply from cloud Gemini (`ONLY_IN_CLOUD`, seeing only aliases), and re-identified back into real names locally in the client's browser.
+- **On-Device Accountant Case Export (`src/core/export.ts`):** local CSV and JSON generation of the full audit case (alerts, computed evidence, origin rows, user decisions, and accountant replies).
+- **Firebase Remote Config (`src/config/`, `remoteconfig.template.json`):** live configuration of anomaly thresholds, cloud model name, and feature flags with validated offline defaults in code.
+- **Opt-in Receipt Vault (`src/vault/`, `firestore.rules`):** cross-device synchronization of Data Receipts (timestamp, payload SHA-256, field names, and counters — never content) using anonymous Firebase Auth and Cloud Firestore with allowlist rules tested in the Firebase Emulator Suite (`src/vault/rules.test.ts`).
+- **Chrome Extension MV3 ("Audit with Zenith", `extension/`):** side-panel extension auditing transaction tables extracted directly from the active web page's DOM or dropped CSV files (`pnpm build:ext`, `e2e/extension.spec.ts`).
+- **Live Firebase project & real Gemini Nano on-device hardening:** configured Firebase AI Logic (`ONLY_ON_DEVICE` and `ONLY_IN_CLOUD`), App Check with reCAPTCHA Enterprise and debug token mode, Firebase Hosting deployment (https://zenith-ledger-app.web.app), on-device statement and receipt photo pipeline with **Check what was read** review screen and misread card number detection.
 
 ## Honest limits
 

@@ -1,5 +1,15 @@
 // Everything here lives in the browser's IndexedDB. Nothing is uploaded.
-export interface Receipt { id?: number; sentAt: string; hash: string; fields: string[]; rowCount: number }
+export interface Receipt {
+  id?: number;
+  sentAt: string;
+  hash: string;
+  fields: string[];
+  rowCount: number;
+  /** Counters shown in the Privacy Firewall at send time. Absent on receipts saved by older versions. */
+  piiFound?: number;
+  piiReplaced?: number;
+  rawDescriptionsSent?: number;
+}
 
 const open = () => new Promise<IDBDatabase>((resolve, reject) => {
   const req = indexedDB.open('zenith-ledger', 1);

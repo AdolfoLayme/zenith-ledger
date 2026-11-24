@@ -5,6 +5,9 @@ export async function sha256Hex(text: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Top-level keys of the payload. The Receipt Vault and its Firestore rules only accept these as field names. */
+export const PAYLOAD_FIELDS = ['schema', 'mode', 'currency', 'period', 'totals', 'categories', 'vendors', 'signals'] as const satisfies readonly (keyof CloudPayload)[];
+
 export interface CloudPayload {
   schema: 'zenith-ledger/payload@1';
   mode: 'strict' | 'assisted';

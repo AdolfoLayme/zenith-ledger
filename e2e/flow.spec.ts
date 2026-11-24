@@ -53,6 +53,16 @@ test('CSV: local analysis, Privacy Firewall, cloud report, re-identification, Da
   await expect(page.locator('ol.receipts li')).toHaveCount(1);
   await expect(page.locator('ol.receipts')).toContainText(hash);
   await expect(page.locator('ol.receipts')).toContainText('signals');
+  await page.getByRole('button', { name: 'Sync receipts' }).click();
+  await expect(page.getByText('Synced with Receipt Vault: 1 uploaded, 0 restored.')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete all' }).click();
+  await page.getByRole('button', { name: 'Delete receipts and alias maps' }).click();
+  await expect(page.getByText('No data has left this device.')).toBeVisible();
+  await page.getByRole('button', { name: 'Sync receipts' }).click();
+  await expect(page.getByText('Synced with Receipt Vault: 0 uploaded, 1 restored.')).toBeVisible();
+  await expect(page.locator('ol.receipts li')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Delete vault copy' }).click();
+  await expect(page.getByText('Vault copy deleted.')).toBeVisible();
   await page.getByRole('button', { name: 'Delete all' }).click();
   await page.getByRole('button', { name: 'Delete receipts and alias maps' }).click();
   await expect(page.getByText('No data has left this device.')).toBeVisible();

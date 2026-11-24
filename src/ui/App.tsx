@@ -9,6 +9,8 @@ import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
 import type { Signal } from '../core/analytics';
 import { clearLocalData, listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
+import { openReceiptVault } from '../vault/firestore';
+import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
 
 type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts';
@@ -69,6 +71,10 @@ export function App() {
   const [pending, setPending] = useState<{ image: Blob; name: string } | null>(null);
   // rows read from a photo, editable until the user confirms them
   const [review, setReview] = useState<{ name: string; persons: string[]; warning: string; rows: ReviewRow[] } | null>(null);
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [vaultOn, setVaultOn] = useState(false);
+  const [vaultNote, setVaultNote] = useState('');
+  const vaultRef = useRef<ReceiptVault | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshHistory = () => listReceipts().then(setHistory).catch(() => {});
@@ -161,6 +167,29 @@ export function App() {
     await refreshHistory();
   }
 
+  async function syncReceipts() {
+    setError(''); setVaultBusy(true);
+    try {
+      const v = vaultRef.current ?? (vaultRef.current = await openReceiptVault());
+      const res = await syncVault(v, await listReceipts());
+      setVaultOn(true);
+      setVaultNote(`Synced with Receipt Vault: ${res.uploaded} uploaded, ${res.restored} restored.`);
+      await refreshHistory();
+    } catch (e) { setError(`Receipt Vault sync failed: ${(e as Error).message}`); }
+    finally { setVaultBusy(false); }
+  }
+
+  async function wipeVault() {
+    setError(''); setVaultBusy(true);
+    try {
+      const v = vaultRef.current ?? (vaultRef.current = await openReceiptVault());
+      await v.wipe();
+      setVaultOn(false);
+      setVaultNote('Vault copy deleted. Local receipts on this device were kept.');
+    } catch (e) { setError(`Could not delete vault copy: ${(e as Error).message}`); }
+    finally { setVaultBusy(false); }
+  }
+
   async function toFirewall() {
     if (!analysis) return;
     setBuilt(await buildPayload(analysis));
@@ -172,7 +201,7 @@ export function App() {
     setBusy(true); setError('');
     try {
       const r = await ai.cloud.audit(built.json, config.cloudModel);
-      const rc: Receipt = { sentAt: new Date().toISOString(), hash: built.hash, fields: Object.keys(built.payload), rowCount: analysis!.rows.length };
+      const rc: Receipt = { sentAt: new Date().toISOString(), hash: built.hash, fields: Object.keys(built.payload), rowCount: analysis!.rows.length, ...built.counters };
       await saveReceipt(rc);
       setReport(r); setReceipt(rc); setScreen('report');
     } catch (e) { setError(`The cloud analysis failed: ${(e as Error).message}`); }
@@ -444,7 +473,22 @@ export function App() {
                 ))}
               </ol>
             )}
-          <p className="muted" style={{ fontSize: 13 }}>Receipts and alias maps live in this browser's IndexedDB. Nothing here is uploaded.</p>
+          <p className="muted" style={{ fontSize: 13 }}>Receipts and alias maps live in this browser's IndexedDB. Nothing here is uploaded unless you sync the Receipt Vault below.</p>
+          {config.flags.receiptVault && (
+            <div className="card mt" data-testid="receipt-vault">
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div style={{ maxWidth: 680 }}>
+                  <h3>Receipt Vault (opt-in)</h3>
+                  <span className="muted">Syncs only receipt metadata (send time, payload SHA-256, field names and counters) across devices via anonymous Firebase Auth and Firestore. Server security rules reject any field outside the allowlist. Alias maps and descriptions never leave this browser.</span>
+                </div>
+                <div className="row">
+                  <button className="btn" onClick={syncReceipts} disabled={vaultBusy || !online || ai.mode === 'none'}>{vaultBusy ? 'Syncing…' : 'Sync receipts'}</button>
+                  {vaultOn && <button className="btn" onClick={wipeVault} disabled={vaultBusy || !online}>Delete vault copy</button>}
+                </div>
+              </div>
+              {vaultNote && <p className="muted" style={{ fontSize: 13, margin: '10px 0 0' }} role="status">{vaultNote}</p>}
+            </div>
+          )}
           <div className="row mt"><button className="btn" onClick={() => setScreen(analysis ? 'local' : 'upload')}>Back</button></div>
         </section>
       )}

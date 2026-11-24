@@ -45,7 +45,11 @@ function Highlighted({ row }: { row: AnalyzedRow }) {
   return <>{parts}</>;
 }
 
-export function App() {
+export interface ExtensionBridge {
+  auditPage: () => Promise<{ rows: StatementRow[]; name: string }>;
+}
+
+export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const ai = useMemo(getAi, []);
   const config = useConfig(ai.mode === 'firebase');
   const online = useOnline();
@@ -136,6 +140,10 @@ export function App() {
   }
 
   const load = (read: () => Promise<StatementRow[]>, name: string) => run(async () => analyze(await read(), name, 'csv'));
+  const auditOpenPage = () => extension && run(async () => {
+    const p = await extension.auditPage();
+    await analyze(p.rows, p.name, 'csv');
+  });
 
   const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
   const loadSample = (n: 'q3' | 'q4') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
@@ -228,12 +236,30 @@ export function App() {
 
       {screen === 'upload' && (
         <section>
-          <h1>Audit your books with AI,<br />without your bank data leaving your laptop.</h1>
-          <p className="lead">Drop a bank statement. Names, cards, emails and account numbers are found and replaced on this device. You see exactly what would be sent, and nothing leaves until you approve it.</p>
+          {extension ? (
+            <>
+              <h1>Audit with Zenith</h1>
+              <p className="lead">Audit the transaction table on the open page or drop a CSV statement. Names, cards, emails and account numbers are found and replaced on this device before anything reaches the Privacy Firewall.</p>
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div>
+                    <h3>Open web page</h3>
+                    <span className="muted">Extracts the transaction table from the active tab’s DOM on this device and runs it through the same hybrid pipeline.</span>
+                  </div>
+                  <button className="btn primary" data-testid="audit-page" onClick={auditOpenPage} disabled={busy}>{busy ? 'Reading…' : 'Audit table on this page'}</button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1>Audit your books with AI,<br />without your bank data leaving your laptop.</h1>
+              <p className="lead">Drop a bank statement. Names, cards, emails and account numbers are found and replaced on this device. You see exactly what would be sent, and nothing leaves until you approve it.</p>
+            </>
+          )}
           <div className={`drop ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
             onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]); }}>
-            <p className="droptitle">Drop a CSV statement, or a photo of a statement or receipt</p>
-            <p>CSV columns: date, description, amount. Photos (JPEG or PNG) are read by the on-device model only.</p>
+            <p className="droptitle">{extension ? 'Or drop a CSV statement here' : 'Drop a CSV statement, or a photo of a statement or receipt'}</p>
+            <p>CSV columns: date, description, amount. {!extension && 'Photos (JPEG or PNG) are read by the on-device model only.'}</p>
             {pending ? (
               <div className="choose" role="group" aria-label="Photo type">
                 <p><b>What is in {pending.name}?</b> The on-device model reads each kind differently.</p>
@@ -246,13 +272,15 @@ export function App() {
             ) : <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>}
             {reading && <p className="muted" role="status">{reading}</p>}
             <input ref={fileRef} type="file" accept={['.csv', 'text/csv', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
-            <div className="samples">
-              <span className="muted">Or try synthetic samples:</span>
-              <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
-              <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
-              {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>}
-              {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>}
-            </div>
+            {!extension && (
+              <div className="samples">
+                <span className="muted">Or try synthetic samples:</span>
+                <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
+                <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
+                {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>}
+                {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>}
+              </div>
+            )}
           </div>
           <div className="card mt">
             <div className="row" style={{ justifyContent: 'space-between' }}>

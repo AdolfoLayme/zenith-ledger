@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>First National Business Checking — Q3 Activity</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 32px auto; padding: 0 20px; color: #0f172a; }
+      h1 { font-size: 22px; margin-bottom: 4px; }
+      p { color: #5b6678; margin-top: 0; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+      th, td { border-bottom: 1px solid #e3e8ef; padding: 10px 12px; text-align: left; }
+      th { background: #f6f8fb; color: #5b6678; font-weight: 600; }
+      td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <h1>First National Business Checking</h1>
+    <p>Synthetic statement activity page for testing the Zenith Ledger Chrome extension.</p>
+
+    <table aria-label="Account summary">
+      <thead><tr><th>Account</th><th>Status</th></tr></thead>
+      <tbody><tr><td>Operating Checking</td><td>Active</td></tr></tbody>
+    </table>
+
+    <table id="transactions" aria-label="Posted transactions">
+      <thead>
+        <tr><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2025-07-14</td><td>SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</td><td class="num">-$49.00</td><td class="num">$18,400.00</td></tr>
+        <tr><td>2025-08-14</td><td>SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</td><td class="num">-$49.00</td><td class="num">$18,351.00</td></tr>
+        <tr><td>2025-09-01</td><td>ACH DEPOSIT CLIENT INVOICE 2048 paid by Marcus Lee marcus.lee@mail.example</td><td class="num">$6,400.00</td><td class="num">$24,751.00</td></tr>
+        <tr><td>2025-09-02</td><td>POS DEBIT DELTA OFFICE SUPPLY card 4111111111111111</td><td class="num">-$236.40</td><td class="num">$24,514.60</td></tr>
+        <tr><td>2025-09-03</td><td>POS DEBIT DELTA OFFICE SUPPLY card 4111111111111111</td><td class="num">-$236.40</td><td class="num">$24,278.20</td></tr>
+        <tr><td>2025-09-05</td><td>ONLINE TRANSFER TO SAVINGS IBAN GB82WEST12345698765432</td><td class="num">-$1,500.00</td><td class="num">$22,778.20</td></tr>
+        <tr><td>2025-09-08</td><td>CONTRACTOR PAY to Sarah Jenkins SSN 123-45-6789 tel (415) 555-0192</td><td class="num">-$1,850.00</td><td class="num">$20,928.20</td></tr>
+        <tr><td>2025-09-14</td><td>SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</td><td class="num">-$79.00</td><td class="num">$20,849.20</td></tr>
+      </tbody>
+    </table>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Zenith Ledger — Audit with Zenith",
+  "version": "0.1.0",
+  "description": "Audit bank tables and CSV statements with hybrid on-device and cloud AI without raw data leaving your laptop.",
+  "permissions": ["sidePanel", "activeTab", "scripting", "tabs"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Audit with Zenith"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:ext": "tsc --noEmit && vite build --config extension/vite.config.ts",
     "test": "vitest run",
     "test:rules": "pnpm dlx firebase-tools@latest emulators:exec --only auth,firestore --project demo-zenith-ledger \"vitest run src/vault/rules.test.ts\"",
     "typecheck": "tsc --noEmit",

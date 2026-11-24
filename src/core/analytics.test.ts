@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectSignals, totals, type Txn } from './analytics';
+import { DEFAULT_THRESHOLDS } from './thresholds';
 
 let id = 0;
 const tx = (date: string, cents: number, vendor = 'V', category = 'Other'): Txn => ({ id: id++, date, amountCents: cents, vendor, category });
@@ -42,5 +43,31 @@ describe('detectSignals', () => {
   it('flags large weekend spend (2025-07-12 is a Saturday)', () => {
     const s = detectSignals([tx('2025-07-12', -64015, 'W'), tx('2025-07-12', -1200, 'C'), tx('2025-07-14', -64015, 'M')]);
     expect(s.filter((x) => x.type === 'weekend_spend')).toEqual([expect.objectContaining({ vendor: 'W' })]);
+  });
+});
+
+describe('detectSignals with custom thresholds', () => {
+  const limits = (o: Partial<typeof DEFAULT_THRESHOLDS>) => ({ ...DEFAULT_THRESHOLDS, ...o });
+  it('widens the duplicate window', () => {
+    const rows = [tx('2025-07-10', -18420, 'A'), tx('2025-07-20', -18420, 'A')];
+    expect(detectSignals(rows).filter((x) => x.type === 'duplicate')).toHaveLength(0);
+    expect(detectSignals(rows, limits({ duplicateWindowDays: 10 })).filter((x) => x.type === 'duplicate')).toHaveLength(1);
+  });
+  it('ignores small price rises when a minimum percent is set', () => {
+    const rows = [tx('2025-07-07', -4900, 'S'), tx('2025-08-07', -4900, 'S'), tx('2025-09-07', -5000, 'S')];
+    expect(detectSignals(rows).filter((x) => x.type === 'price_increase')).toHaveLength(1);
+    expect(detectSignals(rows, limits({ priceIncreaseMinPercent: 5 })).filter((x) => x.type === 'price_increase')).toHaveLength(0);
+  });
+  it('raises the outlier z-score', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => tx(`2025-07-${String(i + 1).padStart(2, '0')}`, -(10000 + i * 100), 'X' + i, 'Supplies'));
+    rows.push(tx('2025-07-20', -240000, 'BIG', 'Supplies'));
+    expect(detectSignals(rows, limits({ outlierZ: 10 })).filter((x) => x.type === 'outlier')).toHaveLength(0);
+  });
+  it('changes what counts as a round transfer and a weekend charge', () => {
+    const rows = [tx('2025-07-01', -300000, 'T', 'Transfers'), tx('2025-07-12', -30000, 'W')];
+    expect(detectSignals(rows).filter((x) => x.type === 'round_transfer')).toHaveLength(1);
+    expect(detectSignals(rows, limits({ roundTransferMinCents: 400000 })).filter((x) => x.type === 'round_transfer')).toHaveLength(0);
+    expect(detectSignals(rows, limits({ roundTransferMultipleCents: 70000 })).filter((x) => x.type === 'round_transfer')).toHaveLength(0);
+    expect(detectSignals(rows, limits({ weekendMinCents: 40000 })).filter((x) => x.type === 'weekend_spend')).toHaveLength(0);
   });
 });

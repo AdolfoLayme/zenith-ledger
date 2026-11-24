@@ -24,7 +24,7 @@ export interface OnDevice {
 
 /** Receives only the payload the user approved in the Privacy Firewall. */
 export interface CloudAuditor {
-  audit(approvedPayloadJson: string): Promise<CloudReport>;
+  audit(approvedPayloadJson: string, model: string): Promise<CloudReport>;
 }
 
 export const BATCH_SIZE = 20;

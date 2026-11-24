@@ -29,11 +29,11 @@ Never write "cents" in your answer: show every amount in US dollars by moving th
 
 export function createCloudAuditor(): CloudAuditor {
   return {
-    async audit(approvedPayloadJson) {
+    async audit(approvedPayloadJson, modelName) {
       const model = getGenerativeModel(getFirebase().ai, {
         mode: InferenceMode.ONLY_IN_CLOUD,
         inCloudParams: {
-          model: 'gemini-3.5-flash-lite',
+          model: modelName,
           systemInstruction: SYSTEM,
           generationConfig: { responseMimeType: 'application/json', responseSchema: schema },
         },

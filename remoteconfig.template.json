@@ -1,0 +1,21 @@
+{
+  "parameters": {
+    "anomaly_thresholds": {
+      "defaultValue": {
+        "value": "{\"duplicateWindowDays\":3,\"priceIncreaseMinPercent\":0,\"outlierZ\":2.5,\"outlierMinSamples\":10,\"roundTransferMinCents\":50000,\"roundTransferMultipleCents\":50000,\"weekendMinCents\":20000}"
+      },
+      "valueType": "JSON",
+      "description": "Limits for the duplicate, price increase, outlier, round transfer and weekend detectors (amounts in cents)."
+    },
+    "cloud_model": {
+      "defaultValue": { "value": "gemini-3.5-flash-lite" },
+      "valueType": "STRING",
+      "description": "Gemini model used for the approved, anonymized cloud audit."
+    },
+    "feature_flags": {
+      "defaultValue": { "value": "{\"receiptVault\":true,\"offlineSummary\":true,\"photoInput\":true}" },
+      "valueType": "JSON",
+      "description": "Turns individual features on or off without a release."
+    }
+  }
+}

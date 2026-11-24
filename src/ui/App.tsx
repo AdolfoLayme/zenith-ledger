@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAi } from '../ai';
 import { misreadCard, PHOTO_TYPES, PhotoNeedsOnDeviceError, readPhoto, rowsFromReview, type PhotoKind } from '../ai/photo';
 import type { CloudReport } from '../ai/types';
+import { useConfig } from '../config/useConfig';
 import { parseStatement } from '../core/csv';
 import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
 import type { StatementRow } from '../core/types';
@@ -44,6 +45,7 @@ function Highlighted({ row }: { row: AnalyzedRow }) {
 
 export function App() {
   const ai = useMemo(getAi, []);
+  const config = useConfig(ai.mode === 'firebase');
   const online = useOnline();
   const [screen, setScreen] = useState<Screen>('upload');
   const [fileName, setFileName] = useState('');
@@ -74,12 +76,12 @@ export function App() {
 
   // Offline: the cloud is out of reach, so Gemini Nano writes a short summary from the anonymized overview.
   useEffect(() => {
-    if (online || !analysis || nano !== 'ready' || !ai.onDevice || summary.state !== 'idle') return;
+    if (online || !config.flags.offlineSummary || !analysis || nano !== 'ready' || !ai.onDevice || summary.state !== 'idle') return;
     setSummary({ state: 'working', text: '' });
     ai.onDevice.summarize(summaryOverview(analysis))
       .then((text) => setSummary({ state: 'done', text }))
       .catch(() => setSummary({ state: 'error', text: '' }));
-  }, [online, analysis, nano, ai.onDevice, summary.state]);
+  }, [online, config.flags.offlineSummary, analysis, nano, ai.onDevice, summary.state]);
 
   // A model downloaded on an earlier visit needs no click: start it right away.
   useEffect(() => {
@@ -120,7 +122,7 @@ export function App() {
       }
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
-    const a = analyzeLocally(rows, { entities });
+    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds });
     setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
     setSummary({ state: 'idle', text: '' });
     saveAliasMap(name, a.aliases).catch(() => {});
@@ -144,6 +146,7 @@ export function App() {
     if (!f) return;
     setPending(null);
     if (!f.type.startsWith('image/')) return load(async () => parseStatement(await f.text()), f.name);
+    if (!config.flags.photoInput) return setError('Photo input is turned off.');
     if (nano !== 'ready' || !ai.onDevice) return setError(new PhotoNeedsOnDeviceError().message);
     setError('');
     setPending({ image: f, name: f.name });
@@ -168,7 +171,7 @@ export function App() {
     if (!built || !ai.cloud) return;
     setBusy(true); setError('');
     try {
-      const r = await ai.cloud.audit(built.json);
+      const r = await ai.cloud.audit(built.json, config.cloudModel);
       const rc: Receipt = { sentAt: new Date().toISOString(), hash: built.hash, fields: Object.keys(built.payload), rowCount: analysis!.rows.length };
       await saveReceipt(rc);
       setReport(r); setReceipt(rc); setScreen('report');
@@ -218,8 +221,8 @@ export function App() {
               <span className="muted">Or try synthetic samples:</span>
               <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
               <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
-              <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>
-              <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>
+              {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>}
+              {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>}
             </div>
           </div>
           <div className="card mt">

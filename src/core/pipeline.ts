@@ -2,6 +2,7 @@ import { detectSignals, totals, type Signal, type Txn } from './analytics';
 import { detectPii } from './detectors';
 import { sha256Hex, countRawLeaks, type CloudPayload, type Counters } from './payload';
 import { createAliaser, redact } from './pseudonymize';
+import type { Thresholds } from './thresholds';
 import type { RowEntities, Span, StatementRow } from './types';
 
 export interface AnalyzedRow {
@@ -67,7 +68,7 @@ function personSpans(text: string, persons: string[], taken: Span[]): Span[] {
   return out;
 }
 
-export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEntities[] } = {}): LocalAnalysis {
+export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEntities[]; thresholds?: Thresholds } = {}): LocalAnalysis {
   const aliaser = createAliaser();
   const assisted = !!opts.entities;
   let piiFound = 0;
@@ -90,7 +91,7 @@ export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEnti
     mode: assisted ? 'assisted' : 'strict',
     currency: input[0]?.currency ?? 'USD',
     period: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
-    rows, txns, signals: detectSignals(txns), totals: totals(txns), aliases: aliaser.map,
+    rows, txns, signals: detectSignals(txns, opts.thresholds), totals: totals(txns), aliases: aliaser.map,
     counters: { piiFound, piiReplaced: piiFound, rawDescriptionsSent: 0 },
   };
 }

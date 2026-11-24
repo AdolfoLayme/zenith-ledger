@@ -2,10 +2,10 @@
   "parameters": {
     "anomaly_thresholds": {
       "defaultValue": {
-        "value": "{\"duplicateWindowDays\":3,\"priceIncreaseMinPercent\":0,\"outlierZ\":2.5,\"outlierMinSamples\":10,\"roundTransferMinCents\":50000,\"roundTransferMultipleCents\":50000,\"weekendMinCents\":20000}"
+        "value": "{\"duplicateWindowDays\":3,\"priceIncreaseMinPercent\":0,\"outlierZ\":2.5,\"outlierMinSamples\":10,\"roundTransferMinCents\":50000,\"roundTransferMultipleCents\":50000,\"weekendMinCents\":20000,\"categoryGrowthMinPercent\":25}"
       },
       "valueType": "JSON",
-      "description": "Limits for the duplicate, price increase, outlier, round transfer and weekend detectors (amounts in cents)."
+      "description": "Limits for the duplicate, price increase, outlier, round transfer, weekend and multi-period category growth detectors (amounts in cents)."
     },
     "integrity_thresholds": {
       "defaultValue": {

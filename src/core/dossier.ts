@@ -1,4 +1,5 @@
 import type { Signal } from './analytics';
+import type { ComparisonFinding } from './compare';
 import { plainMoney, type IntegrityIssue } from './integrity';
 import type { AnalyzedRow, LocalAnalysis } from './pipeline';
 import {
@@ -51,8 +52,8 @@ export interface ComputedMetric {
 
 export interface EvidenceDossier {
   id: string;
-  kind: 'anomaly' | 'integrity';
-  type: Signal['type'] | IntegrityIssue['type'];
+  kind: 'anomaly' | 'integrity' | 'comparison';
+  type: Signal['type'] | IntegrityIssue['type'] | ComparisonFinding['type'];
   severity: 'high' | 'medium' | 'low';
   /** Present when a duplicate signal was confirmed as a statement export duplicate (balance did not move). */
   exportDuplicate?: true;
@@ -386,9 +387,148 @@ export function buildDossiers(
   analysis: LocalAnalysis,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
   integrityLimits: IntegrityThresholds = DEFAULT_INTEGRITY_THRESHOLDS,
+  comparisonFindings: ComparisonFinding[] = [],
 ): EvidenceDossier[] {
   return [
     ...analysis.integrity.map((issue) => buildIntegrityDossier(issue, analysis, integrityLimits)),
     ...analysis.signals.map((s) => buildSignalDossier(s, analysis, thresholds)),
+    ...comparisonFindings.map((f) => buildComparisonDossier(f, analysis, thresholds)),
   ];
+}
+
+function buildComparisonDossier(
+  finding: ComparisonFinding,
+  a: LocalAnalysis,
+  limits: Thresholds,
+): EvidenceDossier {
+  switch (finding.type) {
+    case 'new_subscription': {
+      const sourceRows = a.rows
+        .filter((r) => r.vendorAlias === finding.vendorAlias && r.amountCents < 0)
+        .slice(0, 6)
+        .map(toSourceRow);
+      return {
+        id: `comparison:new_subscription:${finding.vendorAlias}:${finding.unitAmountCents}`,
+        kind: 'comparison',
+        type: 'new_subscription',
+        severity: 'medium',
+        vendorAlias: finding.vendorAlias,
+        category: finding.category,
+        title: `New recurring subscription · ${finding.vendorAlias}`,
+        summary: `${usd(-finding.unitAmountCents)}/mo (${finding.count} charges in ${finding.currentPeriodLabel}, 0 in ${finding.priorPeriodLabel})`,
+        proof: finding.proof,
+        sourceRows,
+        rule: {
+          id: 'new_subscription',
+          name: 'New recurring subscription across periods',
+          thresholdSummary: 'recurringCadence = 20–40 days, priorPeriodCount = 0',
+          thresholds: { minRecurringCount: 2 },
+        },
+        computed: [
+          { label: 'Prior period', value: `${finding.priorPeriodLabel} (0 charges)` },
+          { label: 'Current period', value: `${finding.currentPeriodLabel} (${finding.count} charges)` },
+          { label: 'Recurring amount', value: usd(-finding.unitAmountCents) },
+          { label: 'Current period total', value: usd(-finding.totalSpendCents) },
+        ],
+      };
+    }
+    case 'recurring_price_increase': {
+      const sourceRows = a.rows
+        .filter((r) => r.vendorAlias === finding.vendorAlias && r.amountCents < 0)
+        .slice(-3)
+        .map(toSourceRow);
+      const deltaCents = finding.toCents - finding.fromCents;
+      return {
+        id: `comparison:recurring_price_increase:${finding.vendorAlias}:${finding.fromCents}:${finding.toCents}`,
+        kind: 'comparison',
+        type: 'recurring_price_increase',
+        severity: 'medium',
+        vendorAlias: finding.vendorAlias,
+        category: finding.category,
+        title: `Period price increase · ${finding.vendorAlias}`,
+        summary: `${usd(-finding.fromCents)} in ${finding.priorPeriodLabel} to ${usd(-finding.toCents)} in ${finding.currentPeriodLabel} (+${finding.increasePercent}%)`,
+        proof: finding.proof,
+        sourceRows,
+        rule: {
+          id: 'recurring_price_increase',
+          name: 'Period-over-period recurring price increase',
+          thresholdSummary: `priceIncreaseMinPercent >= ${limits.priceIncreaseMinPercent}% across periods`,
+          thresholds: { priceIncreaseMinPercent: limits.priceIncreaseMinPercent },
+        },
+        computed: [
+          { label: `${finding.priorPeriodLabel} price`, value: usd(-finding.fromCents) },
+          { label: `${finding.currentPeriodLabel} price`, value: usd(-finding.toCents) },
+          { label: 'Increase', value: `+${usd(deltaCents)} (+${finding.increasePercent}%)` },
+        ],
+      };
+    }
+    case 'stopped_recurring': {
+      const baselineRow: SourceRowEvidence = {
+        rowIndex: -1,
+        line: 1,
+        date: finding.priorPeriodTo,
+        vendorAlias: finding.vendorAlias,
+        category: finding.category,
+        amountCents: -finding.priorUnitAmountCents,
+        balanceCents: null,
+        redacted: `${finding.vendorAlias} (${finding.priorPeriodLabel} aggregate baseline: ${finding.priorCount} recurring charges)`,
+        description: `${finding.vendorAlias} (${finding.priorPeriodLabel} aggregate baseline: ${finding.priorCount} recurring charges)`,
+      };
+      return {
+        id: `comparison:stopped_recurring:${finding.vendorAlias}:${finding.priorUnitAmountCents}`,
+        kind: 'comparison',
+        type: 'stopped_recurring',
+        severity: 'low',
+        vendorAlias: finding.vendorAlias,
+        category: finding.category,
+        title: `Disappeared recurring charge · ${finding.vendorAlias}`,
+        summary: `${usd(-finding.priorUnitAmountCents)}/mo in ${finding.priorPeriodLabel} (${finding.priorCount} charges) → 0 in ${finding.currentPeriodLabel}`,
+        proof: finding.proof,
+        sourceRows: [baselineRow],
+        rule: {
+          id: 'stopped_recurring',
+          name: 'Disappeared recurring charge across periods',
+          thresholdSummary: 'priorPeriodRecurring = true, currentPeriodCount = 0',
+          thresholds: { currentPeriodCount: 0 },
+        },
+        computed: [
+          { label: 'Prior period', value: `${finding.priorPeriodLabel} (${finding.priorCount} charges)` },
+          { label: 'Prior recurring amount', value: usd(-finding.priorUnitAmountCents) },
+          { label: 'Prior period total', value: usd(-finding.priorTotalSpendCents) },
+          { label: 'Current period', value: `${finding.currentPeriodLabel} (0 charges)` },
+        ],
+      };
+    }
+    case 'category_growth': {
+      const sourceRows = [...a.rows]
+        .filter((r) => r.category === finding.category && r.amountCents < 0)
+        .sort((x, y) => x.amountCents - y.amountCents)
+        .slice(0, 3)
+        .map(toSourceRow);
+      return {
+        id: `comparison:category_growth:${finding.category}:${finding.currentSpendCents}`,
+        kind: 'comparison',
+        type: 'category_growth',
+        severity: finding.growthPercent >= 50 ? 'high' : 'medium',
+        vendorAlias: finding.topVendorAlias,
+        category: finding.category,
+        title: `Category spend growth · ${finding.category}`,
+        summary: `${usd(-finding.priorSpendCents)} in ${finding.priorPeriodLabel} to ${usd(-finding.currentSpendCents)} in ${finding.currentPeriodLabel} (+${finding.growthPercent}%)`,
+        proof: finding.proof,
+        sourceRows,
+        rule: {
+          id: 'category_growth',
+          name: 'Period-over-period category spend growth',
+          thresholdSummary: `categoryGrowthMinPercent >= ${limits.categoryGrowthMinPercent}%`,
+          thresholds: { categoryGrowthMinPercent: limits.categoryGrowthMinPercent },
+        },
+        computed: [
+          { label: `${finding.priorPeriodLabel} spend`, value: usd(-finding.priorSpendCents) },
+          { label: `${finding.currentPeriodLabel} spend`, value: usd(-finding.currentSpendCents) },
+          { label: 'Growth', value: `+${usd(finding.deltaCents)} (+${finding.growthPercent}%)` },
+          { label: 'Top vendor', value: finding.topVendorAlias },
+        ],
+      };
+    }
+  }
 }

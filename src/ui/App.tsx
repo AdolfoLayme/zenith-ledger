@@ -3,13 +3,14 @@ import { getAi } from '../ai';
 import { misreadCard, PHOTO_TYPES, PhotoNeedsOnDeviceError, readPhoto, rowsFromReview, type PhotoKind } from '../ai/photo';
 import type { CloudReport } from '../ai/types';
 import { useConfig } from '../config/useConfig';
+import { comparePeriods, inferPeriodLabel, summarizePeriod, type PeriodSummary } from '../core/compare';
 import { parseStatement } from '../core/csv';
 import { buildDossiers, type AlertDecision, type DecisionStatus, type EvidenceDossier } from '../core/dossier';
 import { buildAccountantCaseCsv, buildAccountantCaseJson } from '../core/export';
 import { analyzeLocally, buildPayload, countFlaggedAnomalies, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
-import { clearLocalData, listDecisions, listReceipts, saveAliasMap, saveDecision, saveDossiers, saveReceipt, type Receipt } from '../store/receipts';
+import { clearLocalData, listDecisions, listPeriodSummaries, listReceipts, loadAliasMap, saveAliasMap, saveDecision, saveDossiers, savePeriodSummary, saveReceipt, type Receipt } from '../store/receipts';
 import { openPackStore } from '../pack/firestore';
 import { buildAccountantPack, type AccountantPackDoc, type BuiltAccountantPack, type PackItem, type PackReply } from '../pack/pack';
 import { isMobileDevice, MOBILE_NO_NANO_NOTICE } from '../pwa/pwa';
@@ -83,6 +84,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const [dossiers, setDossiers] = useState<EvidenceDossier[]>([]);
   const [openDossierId, setOpenDossierId] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<Record<string, AlertDecision>>({});
+  const [priorPeriod, setPriorPeriod] = useState<PeriodSummary | null>(null);
+  const [savedPeriods, setSavedPeriods] = useState<PeriodSummary[]>([]);
   const [firewallKind, setFirewallKind] = useState<'audit' | 'pack'>('audit');
   const [builtPack, setBuiltPack] = useState<BuiltAccountantPack | null>(null);
   const [sharedPack, setSharedPack] = useState<{ pack: AccountantPackDoc; replies: PackReply[] } | null>(null);
@@ -94,13 +97,15 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const [vaultNote, setVaultNote] = useState('');
   const vaultRef = useRef<ReceiptVault | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const priorFileRef = useRef<HTMLInputElement>(null);
 
   const refreshHistory = () => listReceipts().then(setHistory).catch(() => {});
+  const refreshPeriods = () => listPeriodSummaries().then(setSavedPeriods).catch(() => {});
   const refreshDecisions = () =>
     listDecisions()
       .then((all) => setDecisions(Object.fromEntries(all.map((d) => [d.alertId, d]))))
       .catch(() => {});
-  useEffect(() => { refreshHistory(); refreshDecisions(); }, [receipt]);
+  useEffect(() => { refreshHistory(); refreshDecisions(); refreshPeriods(); }, [receipt]);
 
   // Offline: the cloud is out of reach, so Gemini Nano writes a short summary from the anonymized overview.
   useEffect(() => {
@@ -172,15 +177,75 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
       }
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
-    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds, integrity: config.integrity, fileName: name });
-    const builtDossiers = buildDossiers(a, config.thresholds, config.integrity);
-    setAnalysis(a); setDossiers(builtDossiers); setOpenDossierId(builtDossiers[0]?.id ?? null);
+    const sortedDates = rows.map((r) => r.date).sort();
+    const firstDate = sortedDates[0] ?? '';
+    const existingSummaries = await listPeriodSummaries().catch(() => [] as PeriodSummary[]);
+    const autoPrior = existingSummaries.find((p) => p.period.to < firstDate) ?? null;
+    const priorAliases = autoPrior ? await loadAliasMap(`period:${autoPrior.id}`).catch(() => null) : null;
+
+    const a = analyzeLocally(rows, {
+      entities,
+      thresholds: config.thresholds,
+      integrity: config.integrity,
+      fileName: name,
+      ...(priorAliases ? { initialAliases: priorAliases } : {}),
+    });
+    const currentSummary = summarizePeriod(a, name);
+    await savePeriodSummary(currentSummary).catch(() => {});
+    await saveAliasMap(`period:${currentSummary.id}`, a.aliases).catch(() => {});
+
+    const compFindings = autoPrior ? comparePeriods(a, autoPrior, config.thresholds, name) : [];
+    const builtDossiers = buildDossiers(a, config.thresholds, config.integrity, compFindings);
+    setAnalysis(a); setPriorPeriod(autoPrior); setDossiers(builtDossiers); setOpenDossierId(builtDossiers[0]?.id ?? null);
     setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
     setSummary({ state: 'idle', text: '' });
     saveAliasMap(name, a.aliases).catch(() => {});
     saveDossiers(builtDossiers).catch(() => {});
     await refreshDecisions();
+    await refreshPeriods();
     setScreen('local');
+  }
+
+  async function compareWithPriorRows(priorRows: StatementRow[], priorName: string) {
+    if (!analysis) return;
+    const priorAnalysis = analyzeLocally(priorRows, {
+      thresholds: config.thresholds,
+      integrity: config.integrity,
+      fileName: priorName,
+      initialAliases: analysis.aliases,
+    });
+    for (const [alias, orig] of priorAnalysis.aliases) {
+      analysis.aliases.set(alias, orig);
+    }
+    const priorSummary = summarizePeriod(priorAnalysis, priorName);
+    await savePeriodSummary(priorSummary).catch(() => {});
+    await saveAliasMap(`period:${priorSummary.id}`, analysis.aliases).catch(() => {});
+    await saveAliasMap(fileName, analysis.aliases).catch(() => {});
+    const compFindings = comparePeriods(analysis, priorSummary, config.thresholds, fileName);
+    const builtDossiers = buildDossiers(analysis, config.thresholds, config.integrity, compFindings);
+    setPriorPeriod(priorSummary);
+    setDossiers(builtDossiers);
+    const firstComp = builtDossiers.find((d) => d.kind === 'comparison');
+    if (firstComp) setOpenDossierId(firstComp.id);
+    await saveDossiers(builtDossiers).catch(() => {});
+    await refreshPeriods();
+  }
+
+  async function compareWithSavedSummary(summary: PeriodSummary) {
+    if (!analysis) return;
+    const savedAliases = await loadAliasMap(`period:${summary.id}`).catch(() => null);
+    if (savedAliases) {
+      for (const [alias, orig] of savedAliases) {
+        if (!analysis.aliases.has(alias)) analysis.aliases.set(alias, orig);
+      }
+    }
+    const compFindings = comparePeriods(analysis, summary, config.thresholds, fileName);
+    const builtDossiers = buildDossiers(analysis, config.thresholds, config.integrity, compFindings);
+    setPriorPeriod(summary);
+    setDossiers(builtDossiers);
+    const firstComp = builtDossiers.find((d) => d.kind === 'comparison');
+    if (firstComp) setOpenDossierId(firstComp.id);
+    await saveDossiers(builtDossiers).catch(() => {});
   }
 
   const load = (read: () => Promise<StatementRow[]>, name: string) => run(async () => analyze(await read(), name, 'csv'));
@@ -190,7 +255,12 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   });
 
   const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
-  const loadSample = (n: 'q3' | 'q4' | 'q3-gaps') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
+  const loadSample = (n: 'q2' | 'q3' | 'q4' | 'q3-gaps') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
+  const compareWithSampleQ2 = () => run(async () => compareWithPriorRows(parseStatement(await (await sample('acme-q2.csv')).text()), 'acme-q2.csv'));
+  const onPriorFile = async (f?: File) => {
+    if (!f) return;
+    await run(async () => compareWithPriorRows(parseStatement(await f.text()), f.name));
+  };
   // A photo is only ever read by the on-device model; without it, readPhoto refuses before anything happens.
   const readPhotoAs = (photo: { image: Blob; name: string }, kind: PhotoKind) => run(async () => {
     setReading(`Gemini Nano is reading the ${kind} on this device…`);
@@ -242,6 +312,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     await clearLocalData();
     setConfirmClear(false);
     setDecisions({});
+    setPriorPeriod(null);
+    setSavedPeriods([]);
     await refreshHistory();
   }
 
@@ -474,6 +546,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             {!extension && (
               <div className="samples">
                 <span className="muted">Or try synthetic samples:</span>
+                <button className="link" onClick={() => loadSample('q2')} disabled={busy}>Q2 statement (CSV)</button>
                 <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
                 <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
                 <button className="link" onClick={() => loadSample('q3-gaps')} disabled={busy}>Q3 with integrity gaps (CSV)</button>
@@ -591,6 +664,76 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             {dossiers.filter((d) => d.kind === 'integrity').length > 0 && (
               <div className="mt">
                 {dossiers.filter((d) => d.kind === 'integrity').map((d) => (
+                  <DossierRow
+                    key={d.id}
+                    dossier={d}
+                    open={openDossierId === d.id}
+                    onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
+                    decision={decisions[d.id]}
+                    onDecision={(status) => updateDecision(d.id, status)}
+                    onNote={(note) => updateDecisionNote(d.id, note)}
+                    real={real}
+                    rowsByIndex={analysis.rows}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card mt" data-testid="period-comparison">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div style={{ maxWidth: 660 }}>
+                <h3 style={{ margin: 0 }}>Period-over-period comparison</h3>
+                <span className="muted">
+                  {priorPeriod
+                    ? `Comparing ${inferPeriodLabel(analysis.period, fileName)} against ${priorPeriod.label} (${priorPeriod.fileName} · aggregate aliases, amounts & counts in IndexedDB, 0 raw rows). Detects new subscriptions, recurring price increases, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`
+                    : `Load a prior statement or use the aggregate period summary saved in IndexedDB (aliases, amounts and counts only; never raw rows) to spot new subscriptions, recurring price increases, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`}
+                </span>
+              </div>
+              <div className="row">
+                {!fileName.includes('q2') && (
+                  <button type="button" className="btn small" data-testid="compare-sample-q2" onClick={compareWithSampleQ2} disabled={busy}>
+                    Compare with Q2 sample
+                  </button>
+                )}
+                <button type="button" className="btn small" data-testid="compare-upload-btn" onClick={() => priorFileRef.current?.click()} disabled={busy}>
+                  Load prior CSV
+                </button>
+                <input
+                  ref={priorFileRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  hidden
+                  data-testid="prior-file"
+                  onChange={(e) => { onPriorFile(e.target.files?.[0]); e.target.value = ''; }}
+                />
+                {savedPeriods
+                  .filter((p) => p.id !== `${analysis.period.from}_${analysis.period.to}` && p.id !== priorPeriod?.id)
+                  .slice(0, 1)
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="btn small"
+                      data-testid="compare-saved-period"
+                      onClick={() => compareWithSavedSummary(p)}
+                      disabled={busy}
+                    >
+                      Use saved {p.label} (IndexedDB)
+                    </button>
+                  ))}
+                {priorPeriod && (
+                  <span className={`badge ${dossiers.filter((d) => d.kind === 'comparison').length === 0 ? '' : 'warn'}`} data-testid="comparison-badge">
+                    <span className="dot" />
+                    {dossiers.filter((d) => d.kind === 'comparison').length} period{' '}
+                    {dossiers.filter((d) => d.kind === 'comparison').length === 1 ? 'change' : 'changes'} vs {priorPeriod.label}
+                  </span>
+                )}
+              </div>
+            </div>
+            {dossiers.filter((d) => d.kind === 'comparison').length > 0 && (
+              <div className="mt">
+                {dossiers.filter((d) => d.kind === 'comparison').map((d) => (
                   <DossierRow
                     key={d.id}
                     dossier={d}
@@ -1083,16 +1226,16 @@ function DossierRow({
           <h4>Origin rows ({dossier.sourceRows.length})</h4>
           <div className="origin-list">
             {dossier.sourceRows.map((sr) => {
-              const fullRow = rowsByIndex[sr.rowIndex];
+              const fullRow = sr.rowIndex >= 0 ? rowsByIndex[sr.rowIndex] : undefined;
               return (
-                <div className="origin-row" key={sr.line}>
+                <div className="origin-row" key={`${sr.line}-${sr.date}`}>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span className="mono">
                       {sr.page !== undefined ? `Page ${sr.page} · ` : ''}Line #{sr.line} · {sr.date} · {sr.vendorAlias} ({real(sr.vendorAlias)})
                     </span>
                     <b className="mono">{usd(sr.amountCents)}{sr.balanceCents !== null ? ` · bal ${usd(sr.balanceCents)}` : ''}</b>
                   </div>
-                  <div style={{ marginTop: 4 }}>{fullRow ? <Highlighted row={fullRow} /> : sr.description}</div>
+                  <div style={{ marginTop: 4 }}>{fullRow ? <Highlighted row={fullRow} /> : real(sr.description)}</div>
                   {sr.photo && (
                     <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }} data-testid="photo-provenance">
                       Gemini Nano read: <code>{sr.photo.rawDate} · {sr.photo.rawDescription} · {sr.photo.rawAmount}</code>

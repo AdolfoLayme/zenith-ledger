@@ -281,3 +281,62 @@ for (const [deviceName, descriptor] of [
     }
   });
 }
+
+test('Period-over-period comparison: compares Q3 against Q2 (saved in IndexedDB and uploaded), opens Evidence Dossier, and shares with accountant', async ({ browser }) => {
+  const clientCtx = await browser.newContext();
+  const accountantCtx = await browser.newContext();
+  try {
+    const clientPage = await clientCtx.newPage();
+    await start(clientPage, true);
+
+    // 1. Load Q2 first so its aggregate-only summary is saved in IndexedDB
+    await upload(clientPage, 'public/samples/acme-q2.csv');
+    await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+
+    // 2. Return and load Q3: Zenith automatically compares against the Q2 aggregate summary in IndexedDB
+    await clientPage.getByRole('button', { name: 'Back' }).click();
+    await upload(clientPage, 'public/samples/acme-q3.csv');
+    await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+
+    const compSection = clientPage.getByTestId('period-comparison');
+    await expect(compSection).toBeVisible();
+    await expect(compSection.getByTestId('comparison-badge')).toContainText('vs Q2 2025');
+    await expect(compSection.getByTestId('alert-new_subscription')).toContainText('STREAMDESK');
+    await expect(compSection.getByTestId('alert-recurring_price_increase').first()).toBeVisible();
+    await expect(compSection.getByTestId('alert-stopped_recurring')).toContainText('ATLAS BACKUP');
+    await expect(compSection.getByTestId('alert-category_growth')).toContainText('Supplies');
+
+    // Open the new subscription dossier and mark it "Ask my accountant"
+    const newSubAlert = compSection.getByTestId('alert-new_subscription');
+    if ((await newSubAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
+      await newSubAlert.locator('.sig-btn').click();
+    }
+    await newSubAlert.getByRole('button', { name: 'Ask my accountant' }).click();
+    await newSubAlert.getByLabel('Decision note').fill('Who approved this new STREAMDESK PRO subscription in Q3?');
+
+    // Package into Accountant Review Pack
+    await clientPage.getByTestId('review-pack-firewall').click();
+    await expect(clientPage.getByTestId('pack-firewall')).toBeVisible();
+    const packJson = (await clientPage.locator('pre.json').textContent()) ?? '';
+    expect(packJson).toContain('"type": "new_subscription"');
+    expect(packJson).not.toContain('STREAMDESK');
+
+    await clientPage.getByTestId('approve-pack').click();
+    await expect(clientPage.getByTestId('shared-pack-card')).toBeVisible();
+    const shareUrl = ((await clientPage.getByTestId('pack-share-url').textContent()) ?? '').trim();
+
+    // Accountant reviews the period comparison alert and replies
+    const accPage = await accountantCtx.newPage();
+    await accPage.goto(shareUrl);
+    await expect(accPage.getByTestId('pack-item-new_subscription')).toBeVisible();
+    await accPage.getByTestId('draft-reply-gemini').click();
+    await accPage.getByTestId('send-accountant-reply').click();
+    await expect(accPage.getByTestId('reply-saved-badge')).toBeVisible();
+
+    await clientPage.getByTestId('refresh-pack-replies').click();
+    await expect(clientPage.getByTestId('reidentified-reply').first()).toContainText('STREAMDESK');
+  } finally {
+    await clientCtx.close();
+    await accountantCtx.close();
+  }
+});

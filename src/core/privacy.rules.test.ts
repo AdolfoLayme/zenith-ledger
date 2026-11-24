@@ -15,7 +15,7 @@ const load = (name: string) => ({
   truth: JSON.parse(readFileSync(`public/samples/${name}.truth.json`, 'utf8')) as Truth,
 });
 
-describe.each(['acme-q3', 'acme-q4'])('privacy rules: %s', (name) => {
+describe.each(['acme-q2', 'acme-q3', 'acme-q4'])('privacy rules: %s', (name) => {
   const { rows, truth } = load(name);
 
   it('the sample has between 90 and 150 rows', () => {

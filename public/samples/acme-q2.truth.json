@@ -1,0 +1,131 @@
+{
+  "pii": {
+    "cards": [
+      "4012888888881881",
+      "6011111111111117",
+      "4111111111111111"
+    ],
+    "emails": [
+      "priya.nair@brightmail.example",
+      "maria.garcia@outlook.com",
+      "d.okafor@mail.example",
+      "john.smith@gmail.com"
+    ],
+    "phones": [
+      "(415) 555-0132",
+      "+1 718 555 0123",
+      "212-555-0187",
+      "646.555.0166",
+      "(312) 555-0149"
+    ],
+    "ibans": [
+      "DE89370400440532013000",
+      "GB82WEST12345698765432",
+      "FR1420041010050500013M02606"
+    ],
+    "accounts": [
+      "4400981123"
+    ],
+    "ssns": [
+      "314-77-2290"
+    ],
+    "eins": [
+      "84-1234567"
+    ],
+    "urls": [
+      "https://pay.northwind-retail.example/checkout?token=bea305431d",
+      "https://pay.northwind-retail.example/checkout?token=74ed9c2971",
+      "https://pay.northwind-retail.example/checkout?token=cb3500efb3",
+      "https://pay.northwind-retail.example/checkout?token=e1cc1ca2bc",
+      "https://pay.northwind-retail.example/checkout?token=2095805056"
+    ],
+    "persons": [
+      "Hans Meyer",
+      "Priya Nair",
+      "Emily Carter",
+      "Sarah Johnson",
+      "David Okafor",
+      "John Smith",
+      "Luis Fernandez",
+      "Maria Garcia"
+    ],
+    "vendors": [
+      "PINECREST INSURANCE",
+      "CLOUDNEST HOSTING",
+      "ATLAS BACKUP PRO",
+      "NORTHWIND SOFTWARE",
+      "CITY POWER & WATER",
+      "METRO TELECOM",
+      "Summit Fitness Co",
+      "Northwind Retail",
+      "Redwood Bakery",
+      "DELTA OFFICE DEPOT",
+      "BRIGHTLINE PLUMBING LLC",
+      "HARBOR COFFEE ROASTERS",
+      "CORNER BISTRO",
+      "GREEN TABLE CAFE",
+      "Lakeside Dental LLC",
+      "ACME SUPPLY CO",
+      "SKYLINE AIRLINES"
+    ]
+  },
+  "anomalies": {
+    "duplicates": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -18420,
+        "dates": [
+          "2025-05-10",
+          "2025-05-11"
+        ]
+      },
+      {
+        "vendor": "CORNER BISTRO",
+        "cents": -9635,
+        "dates": [
+          "2025-06-04",
+          "2025-06-06"
+        ]
+      }
+    ],
+    "priceIncreases": [
+      {
+        "vendor": "NORTHWIND SOFTWARE",
+        "fromCents": 8900,
+        "toCents": 9900,
+        "date": "2025-06-12"
+      }
+    ],
+    "outliers": [
+      {
+        "category": "Supplies",
+        "vendor": "BRIGHTLINE PLUMBING LLC",
+        "cents": -89000,
+        "date": "2025-05-22"
+      },
+      {
+        "category": "Meals",
+        "vendor": "CORNER BISTRO",
+        "cents": -41780,
+        "date": "2025-04-24"
+      }
+    ],
+    "roundTransfers": [
+      {
+        "cents": -500000,
+        "date": "2025-04-29"
+      },
+      {
+        "cents": -150000,
+        "date": "2025-06-16"
+      }
+    ],
+    "weekendSpend": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -64015,
+        "date": "2025-05-17"
+      }
+    ]
+  }
+}

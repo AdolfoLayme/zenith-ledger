@@ -35,7 +35,7 @@ service cloud.firestore {
         && item.keys().hasOnly(['alertId', 'kind', 'type', 'severity', 'vendorAlias', 'category', 'title', 'proof', 'ruleName', 'thresholdSummary', 'computedSummary', 'question', 'rows'])
         && item.keys().hasAll(['alertId', 'kind', 'type', 'severity', 'vendorAlias', 'category', 'title', 'proof', 'ruleName', 'thresholdSummary', 'computedSummary', 'question', 'rows'])
         && item.alertId is string && item.alertId.size() >= 3 && item.alertId.size() <= 160
-        && (item.kind == 'anomaly' || item.kind == 'integrity')
+        && (item.kind == 'anomaly' || item.kind == 'integrity' || item.kind == 'comparison')
         && item.type is string && item.type.size() >= 1 && item.type.size() <= 40
         && (item.severity == 'high' || item.severity == 'medium' || item.severity == 'low')
         && item.vendorAlias is string && item.vendorAlias.matches('^(Vendor_[A-Z]+|Statement)$')

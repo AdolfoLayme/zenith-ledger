@@ -1,3 +1,4 @@
+import type { PeriodSummary } from '../core/compare';
 import type { AlertDecision, EvidenceDossier } from '../core/dossier';
 
 // Everything here lives in the browser's IndexedDB. Nothing is uploaded.
@@ -14,13 +15,14 @@ export interface Receipt {
 }
 
 const open = () => new Promise<IDBDatabase>((resolve, reject) => {
-  const req = indexedDB.open('zenith-ledger', 2);
+  const req = indexedDB.open('zenith-ledger', 3);
   req.onupgradeneeded = () => {
     const db = req.result;
     if (!db.objectStoreNames.contains('receipts')) db.createObjectStore('receipts', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('aliases')) db.createObjectStore('aliases', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('decisions')) db.createObjectStore('decisions', { keyPath: 'alertId' });
     if (!db.objectStoreNames.contains('dossiers')) db.createObjectStore('dossiers', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('periods')) db.createObjectStore('periods', { keyPath: 'id' });
   };
   req.onsuccess = () => resolve(req.result);
   req.onerror = () => reject(req.error);
@@ -90,15 +92,29 @@ export async function listDecisions(): Promise<AlertDecision[]> {
   return all;
 }
 
-/** "Delete all": every receipt, stored alias map, evidence dossier and decision in this browser. */
+export async function savePeriodSummary(summary: PeriodSummary): Promise<void> {
+  const db = await open();
+  await done(db.transaction('periods', 'readwrite').objectStore('periods').put(summary));
+  db.close();
+}
+
+export async function listPeriodSummaries(): Promise<PeriodSummary[]> {
+  const db = await open();
+  const all = await done(db.transaction('periods').objectStore('periods').getAll() as IDBRequest<PeriodSummary[]>);
+  db.close();
+  return all.sort((a, b) => b.period.to.localeCompare(a.period.to));
+}
+
+/** "Delete all": every receipt, stored alias map, evidence dossier, period summary and decision in this browser. */
 export async function clearLocalData(): Promise<void> {
   const db = await open();
-  const tx = db.transaction(['receipts', 'aliases', 'decisions', 'dossiers'], 'readwrite');
+  const tx = db.transaction(['receipts', 'aliases', 'decisions', 'dossiers', 'periods'], 'readwrite');
   await Promise.all([
     done(tx.objectStore('receipts').clear()),
     done(tx.objectStore('aliases').clear()),
     done(tx.objectStore('decisions').clear()),
     done(tx.objectStore('dossiers').clear()),
+    done(tx.objectStore('periods').clear()),
   ]);
   db.close();
 }

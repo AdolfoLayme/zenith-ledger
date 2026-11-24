@@ -10,6 +10,7 @@ describe('resolveConfig', () => {
     expect(DEFAULT_CONFIG.thresholds).toEqual({
       duplicateWindowDays: 3, priceIncreaseMinPercent: 0, outlierZ: 2.5, outlierMinSamples: 10,
       roundTransferMinCents: 50000, roundTransferMultipleCents: 50000, weekendMinCents: 20000,
+      categoryGrowthMinPercent: 25,
     });
     expect(DEFAULT_CONFIG.integrity).toEqual({
       maxDateGapDays: 14,

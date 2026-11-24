@@ -54,6 +54,18 @@ export const fakeCloud: CloudAuditor = {
     if (item.type === 'date_gap' || item.type === 'incomplete_period') {
       return `Request the bank statement for the missing days before closing the period. ${evidence}`;
     }
+    if (item.type === 'new_subscription') {
+      return `Confirm business authorization and attach the initial invoice from ${item.vendorAlias} to record this new recurring subscription. ${evidence}`;
+    }
+    if (item.type === 'recurring_price_increase') {
+      return `Verify the renewal notice from ${item.vendorAlias} to confirm the higher recurring rate was approved. ${evidence}`;
+    }
+    if (item.type === 'stopped_recurring') {
+      return `Confirm whether the ${item.vendorAlias} subscription was canceled or moved to another payment method so no accrual is missed. ${evidence}`;
+    }
+    if (item.type === 'category_growth') {
+      return `Review the largest invoices in this category (starting with ${item.vendorAlias}) to confirm whether any item should be capitalized instead of expensed. ${evidence}`;
+    }
     return `Reviewed ${item.vendorAlias}: keep the receipt or contract amendment attached to this entry for audit support. ${evidence}`;
   },
 };

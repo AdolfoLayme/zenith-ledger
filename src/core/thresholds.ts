@@ -14,6 +14,8 @@ export interface Thresholds {
   roundTransferMultipleCents: number;
   /** Weekend charges below this are ignored. */
   weekendMinCents: number;
+  /** Minimum percent growth for a spending category between two periods to be flagged. */
+  categoryGrowthMinPercent: number;
 }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
@@ -24,6 +26,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   roundTransferMinCents: 50000,
   roundTransferMultipleCents: 50000,
   weekendMinCents: 20000,
+  categoryGrowthMinPercent: 25,
 };
 
 /** Tunable limits for statement integrity checks, configured via Firebase Remote Config. */

@@ -39,7 +39,7 @@ const EINS = ['84-1234567', '47-7654321'];
 const IBANS = ['DE89370400440532013000', 'GB82WEST12345698765432', 'FR1420041010050500013M02606'];
 const ACCTS = ['00123456789', '4400981123', '778120045533', '90210347'];
 
-function build(q: 3 | 4, year: number, seed: number) {
+function build(q: 2 | 3 | 4, year: number, seed: number) {
   const r = rng(seed);
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
   const between = (lo: number, hi: number) => Math.round((lo + r() * (hi - lo)) * 100) / 100;
@@ -52,7 +52,7 @@ function build(q: 3 | 4, year: number, seed: number) {
   const vendor = (v: string) => seen('vendors', v);
   const person = (v: string) => seen('persons', v);
   const add = (d: Date, description: string, dollars: number) => txs.push({ date: iso(d), description, cents: cents(dollars) });
-  const firstMonth = q === 3 ? 6 : 9;
+  const firstMonth = q === 2 ? 3 : q === 3 ? 6 : 9;
 
   for (let m = 0; m < 3; m++) {
     const mo = firstMonth + m;
@@ -60,18 +60,25 @@ function build(q: 3 | 4, year: number, seed: number) {
 
     // Fixed monthly items
     add(weekday(dayIn(3)), `${vendor('PINECREST INSURANCE')} ACH premium policy ${seen('accounts', ACCTS[1])!.replace(/^/, 'acct ')}`, -380);
-    if (q === 3) {
+    if (q === 2) {
+      add(weekday(dayIn(7)), `${vendor('CLOUDNEST HOSTING')} subscription renewal`, -49);
+      add(weekday(dayIn(11)), `${vendor('ATLAS BACKUP PRO')} cloud backup subscription`, -39);
+      const nwPrice = m < 2 ? 89 : 99;
+      add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -nwPrice);
+      if (m === 2) truth.anomalies.priceIncreases.push({ vendor: 'NORTHWIND SOFTWARE', fromCents: 8900, toCents: 9900, date: iso(weekday(dayIn(12))) });
+    } else if (q === 3) {
       const price = m < 2 ? 49 : 59;
       add(weekday(dayIn(7)), `${vendor('CLOUDNEST HOSTING')} subscription renewal`, -price);
       if (m === 2) truth.anomalies.priceIncreases.push({ vendor: 'CLOUDNEST HOSTING', fromCents: 4900, toCents: 5900, date: iso(weekday(dayIn(7))) });
       add(weekday(dayIn(9)), `${vendor('STREAMDESK PRO')} monthly plan`, -15.99);
+      add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -129);
     } else {
       const price = m < 2 ? 15.99 : 19.99;
       add(weekday(dayIn(9)), `${vendor('STREAMDESK PRO')} monthly plan`, -price);
       if (m === 2) truth.anomalies.priceIncreases.push({ vendor: 'STREAMDESK PRO', fromCents: 1599, toCents: 1999, date: iso(weekday(dayIn(9))) });
       add(weekday(dayIn(7)), `${vendor('CLOUDNEST HOSTING')} subscription renewal`, -59);
+      add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -129);
     }
-    add(weekday(dayIn(12)), `${vendor('NORTHWIND SOFTWARE')} license`, -129);
     add(weekday(dayIn(20)), `${vendor('CITY POWER & WATER')} utility bill`, -between(160, 260));
     add(weekday(dayIn(21)), `${vendor('METRO TELECOM')} business line ${seen('phones', PHONES[m % 2])}`, -between(85, 99));
     add(weekday(dayIn(14)), `IRS EFTPS payroll tax EIN ${seen('eins', EINS[0])}`, -between(900, 1100));
@@ -99,7 +106,7 @@ function build(q: 3 | 4, year: number, seed: number) {
       const d = weekday(dayIn(1 + Math.floor(r() * 27)));
       const v = pick(['ACME SUPPLY CO', 'BRIGHTLINE PLUMBING LLC', 'DELTA OFFICE DEPOT']);
       const tail = i === 0 ? ` card ${seen('cards', CARDS[(m + q) % CARDS.length])}` : ` order ${4000 + Math.floor(r() * 5000)}`;
-      add(d, `POS DEBIT ${vendor(v)}${tail}`, -between(40, 220));
+      add(d, `POS DEBIT ${vendor(v)}${tail}`, -between(q === 2 ? 30 : 40, q === 2 ? 110 : 220));
     }
     // Meals
     const nMeals = 10 + Math.floor(r() * 3);
@@ -108,7 +115,7 @@ function build(q: 3 | 4, year: number, seed: number) {
       add(d, `POS DEBIT ${vendor(pick(['HARBOR COFFEE ROASTERS', 'GREEN TABLE CAFE', 'CORNER BISTRO']))}`, -between(8, 62));
     }
     // Travel
-    if (m === 1) add(weekday(dayIn(18)), `${vendor('SKYLINE AIRLINES')} ticket ${seen('ssns', SSNS[q - 3])} passenger record`, -between(300, 480));
+    if (m === 1) add(weekday(dayIn(18)), `${vendor('SKYLINE AIRLINES')} ticket ${seen('ssns', SSNS[q === 2 ? 2 : q - 3])} passenger record`, -between(300, 480));
   }
 
   // --- seeded anomalies
@@ -123,8 +130,9 @@ function build(q: 3 | 4, year: number, seed: number) {
   truth.anomalies.duplicates.push({ vendor: 'CORNER BISTRO', cents: -9635, dates: [iso(dup2), iso(addDays(dup2, 2))] });
 
   const supDay = weekday(day(year, firstMonth + 1, 22));
-  add(supDay, `POS DEBIT ${vendor('BRIGHTLINE PLUMBING LLC')} emergency repair acct ${seen('accounts', ACCTS[q - 1])}`, -2380);
-  truth.anomalies.outliers.push({ category: 'Supplies', vendor: 'BRIGHTLINE PLUMBING LLC', cents: -238000, date: iso(supDay) });
+  const supOutlierDollars = q === 2 ? 890 : 2380;
+  add(supDay, `POS DEBIT ${vendor('BRIGHTLINE PLUMBING LLC')} emergency repair acct ${seen('accounts', ACCTS[q - 1])}`, -supOutlierDollars);
+  truth.anomalies.outliers.push({ category: 'Supplies', vendor: 'BRIGHTLINE PLUMBING LLC', cents: -cents(supOutlierDollars), date: iso(supDay) });
   const mealDay = weekday(day(year, firstMonth, 24));
   add(mealDay, `POS DEBIT ${vendor('CORNER BISTRO')} team dinner`, -417.8);
   truth.anomalies.outliers.push({ category: 'Meals', vendor: 'CORNER BISTRO', cents: -41780, date: iso(mealDay) });
@@ -150,9 +158,9 @@ function build(q: 3 | 4, year: number, seed: number) {
 const quote = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 const money = (c: number) => `${c < 0 ? '-' : ''}${Math.floor(Math.abs(c) / 100)}.${String(Math.abs(c) % 100).padStart(2, '0')}`;
 
-function write(name: string, q: 3 | 4, year: number, seed: number, usDates: boolean) {
+function write(name: string, q: 2 | 3 | 4, year: number, seed: number, usDates: boolean) {
   const { txs, truth } = build(q, year, seed);
-  let bal = 2435000;
+  let bal = q === 2 ? 1980000 : 2435000;
   const lines = ['date,description,amount,currency,balance'];
   for (const t of txs) {
     bal += t.cents;
@@ -169,6 +177,7 @@ function write(name: string, q: 3 | 4, year: number, seed: number, usDates: bool
 }
 
 mkdirSync('public/samples', { recursive: true });
+const q2 = write('acme-q2', 2, 2025, 202, false);
 const q3 = write('acme-q3', 3, 2025, 303, false);
 const q4 = write('acme-q4', 4, 2025, 404, true);
 
@@ -256,7 +265,7 @@ function writeCorruptedQ3(name: string) {
 writeCorruptedQ3('acme-q3-gaps');
 
 const list = (title: string, f: (t: Truth) => string[]) =>
-  `### ${title}\n\n${[q3, q4].map((q, i) => f(q.truth).map((l) => `- acme-q${i + 3}: ${l}`).join('\n')).join('\n')}\n`;
+  `### ${title}\n\n${[q2, q3, q4].map((q, i) => f(q.truth).map((l) => `- acme-q${i + 2}: ${l}`).join('\n')).join('\n')}\n`;
 const usd = (c: number) => `$${(Math.abs(c) / 100).toFixed(2)}`;
 writeFileSync('public/samples/README.md', `# Sample statements
 
@@ -264,6 +273,7 @@ Synthetic, three months each, USD, for a fictional small business ("Acme").
 Everything personal in these files is invented test data: names, emails, phone
 numbers, card numbers (Luhn-valid test numbers), IBANs, SSNs and EINs.
 
+- acme-q2.csv: ${q2.rows} rows, ISO dates (Apr-Jun 2025, coherent prior period for Q3 comparison)
 - acme-q3.csv: ${q3.rows} rows, ISO dates (Jul-Sep 2025)
 - acme-q4.csv: ${q4.rows} rows, MM/DD/YYYY dates (Oct-Dec 2025)
 - *.truth.json: the seeded PII and anomalies, used by the privacy rule tests

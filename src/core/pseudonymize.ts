@@ -9,16 +9,37 @@ const PREFIX: Record<EntityKind, string> = {
 
 const letters = (n: number): string => (n < 26 ? String.fromCharCode(65 + n) : letters(Math.floor(n / 26) - 1) + String.fromCharCode(65 + (n % 26)));
 
+function fromLetters(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n - 1;
+}
+
+const KIND_BY_PREFIX = new Map<string, EntityKind>(
+  (Object.entries(PREFIX) as [EntityKind, string][]).map(([k, v]) => [v, k]),
+);
+
 export interface Aliaser {
   alias(kind: EntityKind, value: string): string;
   /** alias -> original. Stays on the device. */
   map: Map<string, string>;
 }
 
-export function createAliaser(): Aliaser {
+export function createAliaser(seed?: ReadonlyMap<string, string>): Aliaser {
   const byValue = new Map<string, string>();
   const counts = new Map<EntityKind, number>();
   const map = new Map<string, string>();
+  if (seed) {
+    for (const [alias, value] of seed) {
+      const m = /^([A-Za-z]+)_([A-Z]+|\d+)$/.exec(alias);
+      const kind = m ? KIND_BY_PREFIX.get(m[1]) : undefined;
+      if (!kind || !m) continue;
+      byValue.set(`${kind}:${value}`, alias);
+      map.set(alias, value);
+      const nextCount = kind === 'vendor' ? fromLetters(m[2]) + 1 : Number(m[2]);
+      if (nextCount > (counts.get(kind) ?? 0)) counts.set(kind, nextCount);
+    }
+  }
   return {
     map,
     alias(kind, value) {

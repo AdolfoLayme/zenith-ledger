@@ -91,9 +91,15 @@ export function countFlaggedAnomalies(signals: Signal[]): number {
 
 export function analyzeLocally(
   input: StatementRow[],
-  opts: { entities?: RowEntities[]; thresholds?: Thresholds; fileName?: string; integrity?: IntegrityOptions } = {},
+  opts: {
+    entities?: RowEntities[];
+    thresholds?: Thresholds;
+    fileName?: string;
+    integrity?: IntegrityOptions;
+    initialAliases?: ReadonlyMap<string, string>;
+  } = {},
 ): LocalAnalysis {
-  const aliaser = createAliaser();
+  const aliaser = createAliaser(opts.initialAliases);
   const assisted = !!opts.entities;
   let piiFound = 0;
   const rows: AnalyzedRow[] = input.map((r, index) => {

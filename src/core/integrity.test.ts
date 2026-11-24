@@ -189,8 +189,8 @@ describe('checkStatementIntegrity', () => {
     ]);
   });
 
-  it('reports zero integrity issues on the clean synthetic acme-q3 and acme-q4 statements', () => {
-    for (const name of ['acme-q3.csv', 'acme-q4.csv']) {
+  it('reports zero integrity issues on the clean synthetic acme-q2, acme-q3 and acme-q4 statements', () => {
+    for (const name of ['acme-q2.csv', 'acme-q3.csv', 'acme-q4.csv']) {
       const rows = parseStatement(readFileSync(`public/samples/${name}`, 'utf8'));
       const declaredPeriod = inferDeclaredPeriod(name, rows);
       expect(declaredPeriod).toBeDefined();

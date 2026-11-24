@@ -60,7 +60,7 @@ export interface PackRow {
 
 export interface PackItem {
   alertId: string;
-  kind: 'anomaly' | 'integrity';
+  kind: 'anomaly' | 'integrity' | 'comparison';
   type: string;
   severity: 'high' | 'medium' | 'low';
   vendorAlias: string;
@@ -307,7 +307,7 @@ function parsePackItem(raw: unknown): PackItem | null {
   const o = raw as Record<string, unknown>;
   if (!hasOnlyKeys(o, PACK_ITEM_KEYS)) return null;
   if (typeof o.alertId !== 'string' || o.alertId.length < 3 || o.alertId.length > 160) return null;
-  if (o.kind !== 'anomaly' && o.kind !== 'integrity') return null;
+  if (o.kind !== 'anomaly' && o.kind !== 'integrity' && o.kind !== 'comparison') return null;
   if (typeof o.type !== 'string' || !o.type || o.type.length > 40) return null;
   if (o.severity !== 'high' && o.severity !== 'medium' && o.severity !== 'low') return null;
   if (typeof o.vendorAlias !== 'string' || !VENDOR_ALIAS.test(o.vendorAlias)) return null;

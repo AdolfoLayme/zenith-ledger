@@ -10,6 +10,7 @@ const SHELL_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',
+  '/samples/acme-q2.csv',
   '/samples/acme-q3.csv',
   '/samples/acme-q4.csv',
   '/samples/acme-q3-gaps.csv',

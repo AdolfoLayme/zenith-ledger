@@ -42,6 +42,7 @@ const THRESHOLD_RULES: { [K in keyof Thresholds]: (v: unknown) => v is number } 
   roundTransferMinCents: isInt(0),
   roundTransferMultipleCents: isInt(1),
   weekendMinCents: isInt(0),
+  categoryGrowthMinPercent: isNum(0, 1000),
 };
 
 const INTEGRITY_RULES: { [K in keyof IntegrityThresholds]: (v: unknown) => v is number } = {

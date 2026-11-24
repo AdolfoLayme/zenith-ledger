@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Harbor Commercial Treasury — ARIA Grid Activity</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; max-width: 960px; margin: 32px auto; padding: 0 20px; color: #0f172a; background: #ffffff; }
+      h1 { font-size: 22px; margin-bottom: 4px; }
+      p { color: #5b6678; margin-top: 0; }
+      .aria-grid { border: 1px solid #e3e8ef; border-radius: 12px; overflow: hidden; margin-top: 20px; font-size: 14px; }
+      .aria-row { display: grid; grid-template-columns: 120px 1fr 130px 130px; border-top: 1px solid #e3e8ef; align-items: center; }
+      .aria-row.header { background: #f6f8fb; color: #5b6678; font-weight: 600; border-top: 0; }
+      .aria-cell { padding: 10px 12px; }
+      .aria-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <h1>Harbor Commercial Treasury</h1>
+    <p>Synthetic online banking activity page built with ARIA grid roles (no HTML table element) for testing the Zenith Ledger Chrome extension.</p>
+
+    <div class="aria-grid" role="grid" aria-label="Posted Treasury Transactions">
+      <div role="rowgroup">
+        <div class="aria-row header" role="row">
+          <div class="aria-cell" role="columnheader">Posted Date</div>
+          <div class="aria-cell" role="columnheader">Transaction Details</div>
+          <div class="aria-cell num" role="columnheader">Amount</div>
+          <div class="aria-cell num" role="columnheader">Balance</div>
+        </div>
+      </div>
+      <div role="rowgroup">
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-07-14</div>
+          <div class="aria-cell" role="gridcell">SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</div>
+          <div class="aria-cell num" role="gridcell">-$49.00</div>
+          <div class="aria-cell num" role="gridcell">$18,400.00</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-08-14</div>
+          <div class="aria-cell" role="gridcell">SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</div>
+          <div class="aria-cell num" role="gridcell">-$49.00</div>
+          <div class="aria-cell num" role="gridcell">$18,351.00</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-01</div>
+          <div class="aria-cell" role="gridcell">ACH DEPOSIT CLIENT INVOICE 2048 paid by Marcus Lee marcus.lee@mail.example</div>
+          <div class="aria-cell num" role="gridcell">$6,400.00</div>
+          <div class="aria-cell num" role="gridcell">$24,751.00</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-02</div>
+          <div class="aria-cell" role="gridcell">POS DEBIT DELTA OFFICE SUPPLY card 4111111111111111</div>
+          <div class="aria-cell num" role="gridcell">-$236.40</div>
+          <div class="aria-cell num" role="gridcell">$24,514.60</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-03</div>
+          <div class="aria-cell" role="gridcell">POS DEBIT DELTA OFFICE SUPPLY card 4111111111111111</div>
+          <div class="aria-cell num" role="gridcell">-$236.40</div>
+          <div class="aria-cell num" role="gridcell">$24,278.20</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-05</div>
+          <div class="aria-cell" role="gridcell">ONLINE TRANSFER TO SAVINGS IBAN GB82WEST12345698765432</div>
+          <div class="aria-cell num" role="gridcell">-$1,500.00</div>
+          <div class="aria-cell num" role="gridcell">$22,778.20</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-08</div>
+          <div class="aria-cell" role="gridcell">CONTRACTOR PAY to Sarah Jenkins SSN 123-45-6789 tel (415) 555-0192</div>
+          <div class="aria-cell num" role="gridcell">-$1,850.00</div>
+          <div class="aria-cell num" role="gridcell">$20,928.20</div>
+        </div>
+        <div class="aria-row" role="row">
+          <div class="aria-cell" role="gridcell">2025-09-14</div>
+          <div class="aria-cell" role="gridcell">SUBSCRIPTION CLOUDNEST HOSTING monthly plan support@cloudnest.example</div>
+          <div class="aria-cell num" role="gridcell">-$79.00</div>
+          <div class="aria-cell num" role="gridcell">$20,849.20</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

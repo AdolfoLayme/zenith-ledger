@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { analyzeLocally, buildPayload } from '../src/core/pipeline';
 import { auditActiveTabTable, grabTablesFromDom, parseTablesToRows } from './extractTable';
@@ -103,5 +104,117 @@ describe('DOM transaction table extraction', () => {
     expect(res.name).toBe('First National Checking');
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0].amountCents).toBe(-1875);
+  });
+
+  it('extracts rows from ARIA grids ([role=table], [role=grid], [role=row], [role=columnheader], [role=cell], [role=gridcell]) without any <table> element', () => {
+    document.body.innerHTML = `
+      <div role="grid" aria-label="Recent Activity">
+        <div role="rowgroup">
+          <div role="row">
+            <div role="columnheader">Posted Date</div>
+            <div role="columnheader">Transaction Details</div>
+            <div role="columnheader">Amount</div>
+            <div role="columnheader">Running Balance</div>
+          </div>
+        </div>
+        <div role="rowgroup">
+          <div role="row">
+            <div role="gridcell">2025-09-01</div>
+            <div role="gridcell">ACH DEPOSIT LAKESIDE DENTAL LLC inv 4100</div>
+            <div role="gridcell">$3,500.00</div>
+            <div role="gridcell">$18,500.00</div>
+          </div>
+          <div role="row">
+            <div role="cell">2025-09-03</div>
+            <div role="cell">POS DEBIT DELTA OFFICE DEPOT card 4111111111111111</div>
+            <div role="cell">-$236.40</div>
+            <div role="cell">$18,263.60</div>
+          </div>
+          <div role="row">
+            <div role="cell">2025-09-04</div>
+            <div role="cell">POS DEBIT DELTA OFFICE DEPOT card 4111111111111111</div>
+            <div role="cell">-$236.40</div>
+            <div role="cell">$18,027.20</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    expect(document.querySelectorAll('table')).toHaveLength(0);
+    const rows = parseTablesToRows(grabTablesFromDom());
+    expect(rows).toEqual([
+      {
+        date: '2025-09-01',
+        description: 'ACH DEPOSIT LAKESIDE DENTAL LLC inv 4100',
+        amountCents: 350000,
+        currency: 'USD',
+        balanceCents: 1850000,
+      },
+      {
+        date: '2025-09-03',
+        description: 'POS DEBIT DELTA OFFICE DEPOT card 4111111111111111',
+        amountCents: -23640,
+        currency: 'USD',
+        balanceCents: 1826360,
+      },
+      {
+        date: '2025-09-04',
+        description: 'POS DEBIT DELTA OFFICE DEPOT card 4111111111111111',
+        amountCents: -23640,
+        currency: 'USD',
+        balanceCents: 1802720,
+      },
+    ]);
+  });
+
+  it('extracts rows from modern banking div lists (with or without explicit column header divs)', () => {
+    document.body.innerHTML = `
+      <div class="activity-feed">
+        <div class="tx-row">
+          <div class="col-date">2025-09-10</div>
+          <div class="col-desc">Wire to Sarah Jenkins IBAN GB82WEST12345698765432</div>
+          <div class="col-amount">-$1,500.00</div>
+          <div class="col-balance">$12,400.00</div>
+        </div>
+        <div class="tx-row">
+          <div class="col-date">2025-09-12</div>
+          <div class="col-desc">CLOUDNEST HOSTING subscription support@cloudnest.example</div>
+          <div class="col-amount">-$59.00</div>
+          <div class="col-balance">$12,341.00</div>
+        </div>
+      </div>
+    `;
+
+    const rows = parseTablesToRows(grabTablesFromDom());
+    expect(rows).toEqual([
+      {
+        date: '2025-09-10',
+        description: 'Wire to Sarah Jenkins IBAN GB82WEST12345698765432',
+        amountCents: -150000,
+        currency: 'USD',
+        balanceCents: 1240000,
+      },
+      {
+        date: '2025-09-12',
+        description: 'CLOUDNEST HOSTING subscription support@cloudnest.example',
+        amountCents: -5900,
+        currency: 'USD',
+        balanceCents: 1234100,
+      },
+    ]);
+  });
+
+  it('extracts the synthetic ARIA grid banking sample page without leaking PII', async () => {
+    document.body.innerHTML = readFileSync('public/samples/bank-aria-grid.html', 'utf8');
+    expect(document.querySelectorAll('table')).toHaveLength(0);
+    const rows = parseTablesToRows(grabTablesFromDom());
+    expect(rows.length).toBeGreaterThanOrEqual(8);
+
+    const analysis = analyzeLocally(rows);
+    const built = await buildPayload(analysis);
+    expect(built.counters.rawDescriptionsSent).toBe(0);
+    expect(built.json).not.toContain('4111111111111111');
+    expect(built.json).not.toContain('GB82WEST12345698765432');
+    expect(built.json).not.toContain('DELTA OFFICE');
   });
 });

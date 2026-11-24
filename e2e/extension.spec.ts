@@ -79,8 +79,20 @@ test('Chrome extension MV3: audits the transaction table on the open bank page a
     expect(reportText).not.toMatch(/\bVendor_[A-Z]+\b/);
     await expect(panel.getByText(hash)).toBeVisible();
 
-    // Also audit a CSV file dropped into the side panel
+    // Also audit a modern banking page built with an ARIA grid (no <table> tag)
+    await bankPage.goto(`${baseURL}/samples/bank-aria-grid.html`);
+    await expect(bankPage.getByRole('heading', { name: 'Harbor Commercial Treasury' })).toBeVisible();
+    await expect(bankPage.locator('table')).toHaveCount(0);
+
     await panel.getByRole('button', { name: 'Audit another statement' }).click();
+    await panel.getByTestId('audit-page').click();
+    await expect(panel.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+    await expect(panel.getByText('Harbor Commercial Treasury — ARIA Grid Activity')).toBeVisible();
+    await expect(panel.locator('.stat b').first()).toHaveText('8');
+    await expect(panel.getByText('Possible duplicate')).toBeVisible();
+
+    // Also audit a CSV file dropped into the side panel
+    await panel.getByRole('button', { name: 'Back' }).click();
     await panel.getByTestId('file').setInputFiles('public/samples/acme-q3.csv');
     await expect(panel.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
     await expect(panel.locator('.stat b').first()).toHaveText('117');

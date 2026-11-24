@@ -12,7 +12,10 @@ export interface RawTable {
  */
 export function grabTablesFromDom(): RawTable[] {
   const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
-  return [...document.querySelectorAll('table')].map((table) => {
+  const out: RawTable[] = [];
+
+  // 1. Classic HTML <table> elements
+  for (const table of document.querySelectorAll('table')) {
     const trs = [...table.querySelectorAll('tr')];
     const headTr = table.querySelector('thead tr') ?? trs[0];
     const headers = headTr ? [...headTr.querySelectorAll('th, td')].map((c) => clean(c.textContent)) : [];
@@ -22,8 +25,78 @@ export function grabTablesFromDom(): RawTable[] {
     const rows = bodyTrs
       .map((tr) => [...tr.querySelectorAll('td, th')].map((c) => clean(c.textContent)))
       .filter((r) => r.some(Boolean));
-    return { headers, rows };
-  });
+    out.push({ headers, rows });
+  }
+
+  // 2. ARIA tables and grids ([role=table], [role=grid], [role=treegrid], [role=row], [role=cell], [role=gridcell])
+  const cellSel = '[role="columnheader"], [role="rowheader"], [role="cell"], [role="gridcell"]';
+  const readRowCells = (rowEl: Element): string[] => {
+    const ariaCells = [...rowEl.querySelectorAll(cellSel)];
+    const els = ariaCells.length ? ariaCells : [...rowEl.children];
+    return els.map((c) => clean(c.textContent));
+  };
+
+  for (const grid of document.querySelectorAll('[role="table"], [role="grid"], [role="treegrid"]')) {
+    const roleRows = [...grid.querySelectorAll('[role="row"]')];
+    if (!roleRows.length) continue;
+    const headerRow =
+      roleRows.find((r) => r.querySelector('[role="columnheader"]') !== null) ?? roleRows[0];
+    const headers = headerRow ? readRowCells(headerRow) : [];
+    const bodyRows = roleRows.filter((r) => r !== headerRow);
+    const rows = bodyRows.map(readRowCells).filter((r) => r.some(Boolean));
+    out.push({ headers, rows });
+  }
+
+  // 3. Modern online banking div/list feeds without <table> or ARIA grid roles
+  const dateRe = /^(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})$/;
+  const moneyRe = /^[+-]?\$?\d[\d,]*\.\d{2}$/;
+  const headerDateRe = /\b(date|posted|day)\b/i;
+  const headerDescRe = /\b(description|details|merchant|payee|memo|transaction|narrative|activity)\b/i;
+
+  for (const container of document.querySelectorAll('div, ul, ol, section, main')) {
+    if (container.closest('table, [role="table"], [role="grid"], [role="treegrid"]')) continue;
+    const childRows = [...container.children].filter(
+      (el) => el.children.length >= 3 && el.children.length <= 7 && !el.querySelector('table, [role="row"]'),
+    );
+    if (childRows.length < 2) continue;
+
+    const matrix = childRows.map((rowEl) => [...rowEl.children].map((c) => clean(c.textContent)));
+    const first = matrix[0];
+    if (first.some((c) => headerDateRe.test(c)) && first.some((c) => headerDescRe.test(c))) {
+      out.push({ headers: first, rows: matrix.slice(1) });
+      continue;
+    }
+
+    // Headerless div list: infer Date, Description, Amount, and optional Balance columns from cell shapes
+    const sampleRow = matrix.find(
+      (r) => r.some((c) => dateRe.test(c)) && r.some((c) => moneyRe.test(c)),
+    );
+    if (!sampleRow) continue;
+    const validRows = matrix.filter(
+      (r) => r.length === sampleRow.length && r.some((c) => dateRe.test(c)) && r.some((c) => moneyRe.test(c)),
+    );
+    if (validRows.length < 2) continue;
+
+    const dateIdx = sampleRow.findIndex((c) => dateRe.test(c));
+    const moneyIndices = sampleRow
+      .map((c, idx) => (moneyRe.test(c) ? idx : -1))
+      .filter((idx) => idx >= 0);
+    const descIdx = sampleRow.findIndex(
+      (c, idx) => idx !== dateIdx && !moneyIndices.includes(idx) && c.length >= 3,
+    );
+    if (dateIdx < 0 || descIdx < 0 || !moneyIndices.length) continue;
+
+    const headers = sampleRow.map((_, idx) => {
+      if (idx === dateIdx) return 'Date';
+      if (idx === descIdx) return 'Description';
+      if (idx === moneyIndices[0]) return 'Amount';
+      if (idx === moneyIndices[1]) return 'Balance';
+      return `Col${idx}`;
+    });
+    out.push({ headers, rows: validRows });
+  }
+
+  return out;
 }
 
 const findCol = (headers: string[], re: RegExp) => headers.findIndex((h) => re.test(h));

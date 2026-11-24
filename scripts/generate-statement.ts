@@ -172,6 +172,83 @@ mkdirSync('public/samples', { recursive: true });
 const q3 = write('acme-q3', 3, 2025, 303, false);
 const q4 = write('acme-q4', 4, 2025, 404, true);
 
+function writeCorruptedQ3(name: string) {
+  const { txs, truth } = build(3, 2025, 303);
+  // 1. Incomplete period: drop everything after 2025-09-12 (missing last 18 days of declared Q3)
+  // 2. Date gap: drop transactions between 2025-07-16 and 2025-08-03 (creating an 18-day gap)
+  const filtered = txs.filter((t) => t.date <= '2025-09-12' && !(t.date > '2025-07-15' && t.date < '2025-08-04'));
+
+  let bal = 2435000;
+  const rows: { date: string; desc: string; cents: number; bal: number }[] = [];
+  for (const t of filtered) {
+    bal += t.cents;
+    const desc =
+      t.cents < 0 && t.description.startsWith('POS DEBIT') && t.cents % 7 === 0
+        ? `${t.description}, store #12`
+        : t.description;
+    rows.push({ date: t.date, desc, cents: t.cents, bal });
+  }
+
+  // 3. Seed an exact export duplicate row right after row 15 (1-based rows 15 and 16 identical)
+  const dupTarget = { ...rows[14] };
+  rows.splice(15, 0, dupTarget);
+
+  // 4. Seed a running balance jump of -$100.00 (-10,000 cents) between 1-based rows 41 and 42
+  const expectedAt42 = rows[40].bal + rows[41].cents;
+  const actualAt42 = expectedAt42 - 10000;
+  for (let i = 41; i < rows.length; i++) {
+    rows[i].bal = (i === 41 ? actualAt42 : rows[i - 1].bal + rows[i].cents);
+  }
+
+  const gapIdx = rows.findIndex((r, i) => i > 0 && r.date >= '2025-08-04' && rows[i - 1].date <= '2025-07-15');
+  const gapDays =
+    Math.round((Date.parse(rows[gapIdx].date + 'T00:00:00Z') - Date.parse(rows[gapIdx - 1].date + 'T00:00:00Z')) / 86400000);
+
+  const fmt = (c: number) =>
+    `${c < 0 ? '-' : ''}${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const integrityTruth = {
+    ...truth,
+    integrity: {
+      balanceMismatches: [
+        {
+          rows: [41, 42] as [number, number],
+          expectedCents: expectedAt42,
+          actualCents: actualAt42,
+          proof: `expected ${fmt(expectedAt42)}, statement says ${fmt(actualAt42)}, gap between rows 41–42`,
+        },
+      ],
+      duplicateRows: [
+        {
+          rows: [15, 16] as [number, number],
+          proof: `expected ${fmt(dupTarget.bal + dupTarget.cents)}, statement says ${fmt(dupTarget.bal)}, gap between rows 15–16`,
+        },
+      ],
+      dateGaps: [
+        {
+          rows: [gapIdx, gapIdx + 1] as [number, number],
+          gapDays,
+        },
+      ],
+      incompletePeriod: {
+        declaredFrom: '2025-07-01',
+        declaredTo: '2025-09-30',
+        actualTo: rows[rows.length - 1].date,
+      },
+    },
+  };
+
+  const lines = ['date,description,amount,currency,balance'];
+  for (const r of rows) {
+    lines.push([r.date, quote(r.desc), money(r.cents), 'USD', money(r.bal)].join(','));
+  }
+  writeFileSync(`public/samples/${name}.csv`, lines.join('\n') + '\n');
+  writeFileSync(`public/samples/${name}.truth.json`, JSON.stringify(integrityTruth, null, 2) + '\n');
+  console.log(name, rows.length, 'rows');
+}
+
+writeCorruptedQ3('acme-q3-gaps');
+
 const list = (title: string, f: (t: Truth) => string[]) =>
   `### ${title}\n\n${[q3, q4].map((q, i) => f(q.truth).map((l) => `- acme-q${i + 3}: ${l}`).join('\n')).join('\n')}\n`;
 const usd = (c: number) => `$${(Math.abs(c) / 100).toFixed(2)}`;

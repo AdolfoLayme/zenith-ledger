@@ -8,6 +8,7 @@ import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type B
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
 import type { Signal } from '../core/analytics';
+import type { IntegrityIssue } from '../core/integrity';
 import { clearLocalData, listReceipts, saveAliasMap, saveReceipt, type Receipt } from '../store/receipts';
 import { openReceiptVault } from '../vault/firestore';
 import { syncVault, type ReceiptVault } from '../vault/sync';
@@ -132,7 +133,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
       }
     }
     if (entities && persons.length) entities = entities.map((e) => ({ ...e, persons: [...(e.persons ?? []), ...persons] }));
-    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds });
+    const a = analyzeLocally(rows, { entities, thresholds: config.thresholds, fileName: name });
     setAnalysis(a); setFileName(name); setSource(from); setBuilt(null); setReport(null); setReceipt(null); setShowAll(false);
     setSummary({ state: 'idle', text: '' });
     saveAliasMap(name, a.aliases).catch(() => {});
@@ -146,7 +147,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   });
 
   const sample = (name: string) => fetch(`${import.meta.env.BASE_URL}samples/${name}`);
-  const loadSample = (n: 'q3' | 'q4') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
+  const loadSample = (n: 'q3' | 'q4' | 'q3-gaps') => load(async () => parseStatement(await (await sample(`acme-${n}.csv`)).text()), `acme-${n}.csv`);
   // A photo is only ever read by the on-device model; without it, readPhoto refuses before anything happens.
   const readPhotoAs = (photo: { image: Blob; name: string }, kind: PhotoKind) => run(async () => {
     setReading(`Gemini Nano is reading the ${kind} on this device…`);
@@ -277,6 +278,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                 <span className="muted">Or try synthetic samples:</span>
                 <button className="link" onClick={() => loadSample('q3')} disabled={busy}>Q3 statement (CSV)</button>
                 <button className="link" onClick={() => loadSample('q4')} disabled={busy}>Q4 statement (CSV, US dates)</button>
+                <button className="link" onClick={() => loadSample('q3-gaps')} disabled={busy}>Q3 with integrity gaps (CSV)</button>
                 {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('statement-photo.png', 'statement')} disabled={busy}>Statement photo</button>}
                 {config.flags.photoInput && <button className="link" onClick={() => loadSamplePhoto('receipt-photo.png', 'receipt')} disabled={busy}>Receipt photo</button>}
               </div>
@@ -368,6 +370,24 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
           </div>
           {analysis.mode === 'strict' && nanoNote && <div className="note mt" role="status">{nanoNote}</div>}
           {analysis.mode === 'strict' && <div className="note mt">Strict mode: person names inside free text are not detected without the on-device model, so free-text descriptions are never included in what is sent.</div>}
+
+          <div className="card mt" data-testid="integrity-check">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Statement integrity check</h3>
+                <span className="muted">Deterministic verification of running balances, chronological dates, export duplicates and period coverage.</span>
+              </div>
+              <span className={`badge ${analysis.integrity.length === 0 ? '' : 'warn'}`}>
+                <span className="dot" />
+                {analysis.integrity.length === 0 ? 'Reconciled · 0 gaps' : `${analysis.integrity.length} integrity ${analysis.integrity.length === 1 ? 'issue' : 'issues'}`}
+              </span>
+            </div>
+            {analysis.integrity.length > 0 && (
+              <div className="mt">
+                {analysis.integrity.map((issue, i) => <IntegrityItem key={i} issue={issue} />)}
+              </div>
+            )}
+          </div>
 
           <div className="grid g2 mt">
             <div className="card">
@@ -533,5 +553,26 @@ function SignalItem({ s, real }: { s: Signal; real: (t: string) => string }) {
   return (
     <div className="sig"><div className={`sev ${s.type === 'duplicate' || s.type === 'outlier' ? 'high' : s.type === 'weekend_spend' ? 'low' : ''}`} />
       <div><b>{label[s.type]}</b> · {who}<div className="muted">{detail}</div></div></div>
+  );
+}
+
+function IntegrityItem({ issue }: { issue: IntegrityIssue }) {
+  const label: Record<IntegrityIssue['type'], string> = {
+    balance_mismatch: 'Running balance mismatch',
+    missing_page: 'Missing page (balance jump)',
+    duplicate_row: 'Exact duplicate row (export error)',
+    date_gap: 'Unusual date gap',
+    incomplete_period: 'Incomplete statement period',
+  };
+  const sev = issue.type === 'balance_mismatch' || issue.type === 'missing_page' ? 'high' : '';
+  return (
+    <div className="sig">
+      <div className={`sev ${sev}`} />
+      <div>
+        <b>{label[issue.type]}</b> · rows {issue.rows[0]}–{issue.rows[1]}
+        <div className="mono">{issue.proof}</div>
+        <div className="muted">{issue.detail}</div>
+      </div>
+    </div>
   );
 }

@@ -1,0 +1,166 @@
+{
+  "pii": {
+    "cards": [
+      "6011111111111117",
+      "4111111111111111",
+      "5555555555554444"
+    ],
+    "emails": [
+      "priya.nair@brightmail.example",
+      "emily.carter@gmail.com",
+      "john.smith@gmail.com",
+      "d.okafor@mail.example"
+    ],
+    "phones": [
+      "(415) 555-0132",
+      "(312) 555-0149",
+      "212-555-0187"
+    ],
+    "ibans": [
+      "DE89370400440532013000",
+      "GB82WEST12345698765432",
+      "FR1420041010050500013M02606"
+    ],
+    "accounts": [
+      "4400981123",
+      "778120045533"
+    ],
+    "ssns": [
+      "512-44-7731"
+    ],
+    "eins": [
+      "84-1234567"
+    ],
+    "urls": [
+      "https://pay.northwind-retail.example/checkout?token=cfd2037406",
+      "https://pay.northwind-retail.example/checkout?token=dfc90920a3",
+      "https://pay.northwind-retail.example/checkout?token=b40617d422",
+      "https://pay.northwind-retail.example/checkout?token=b2e5783f86",
+      "https://pay.northwind-retail.example/checkout?token=a175aa6df1",
+      "https://pay.northwind-retail.example/checkout?token=9bea9054bd",
+      "https://pay.northwind-retail.example/checkout?token=9e578361b9",
+      "https://pay.northwind-retail.example/checkout?token=bfbdd4951d"
+    ],
+    "persons": [
+      "Hans Meyer",
+      "Priya Nair",
+      "David Okafor",
+      "Emily Carter",
+      "Luis Fernandez",
+      "Sarah Johnson"
+    ],
+    "vendors": [
+      "PINECREST INSURANCE",
+      "CLOUDNEST HOSTING",
+      "STREAMDESK PRO",
+      "NORTHWIND SOFTWARE",
+      "CITY POWER & WATER",
+      "METRO TELECOM",
+      "Redwood Bakery",
+      "Summit Fitness Co",
+      "Northwind Retail",
+      "BRIGHTLINE PLUMBING LLC",
+      "DELTA OFFICE DEPOT",
+      "GREEN TABLE CAFE",
+      "CORNER BISTRO",
+      "HARBOR COFFEE ROASTERS",
+      "ACME SUPPLY CO",
+      "SKYLINE AIRLINES"
+    ]
+  },
+  "anomalies": {
+    "duplicates": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -18420,
+        "dates": [
+          "2025-08-10",
+          "2025-08-11"
+        ]
+      },
+      {
+        "vendor": "CORNER BISTRO",
+        "cents": -9635,
+        "dates": [
+          "2025-09-04",
+          "2025-09-06"
+        ]
+      }
+    ],
+    "priceIncreases": [
+      {
+        "vendor": "CLOUDNEST HOSTING",
+        "fromCents": 4900,
+        "toCents": 5900,
+        "date": "2025-09-05"
+      }
+    ],
+    "outliers": [
+      {
+        "category": "Supplies",
+        "vendor": "BRIGHTLINE PLUMBING LLC",
+        "cents": -238000,
+        "date": "2025-08-22"
+      },
+      {
+        "category": "Meals",
+        "vendor": "CORNER BISTRO",
+        "cents": -41780,
+        "date": "2025-07-24"
+      }
+    ],
+    "roundTransfers": [
+      {
+        "cents": -500000,
+        "date": "2025-07-30"
+      },
+      {
+        "cents": -150000,
+        "date": "2025-09-16"
+      }
+    ],
+    "weekendSpend": [
+      {
+        "vendor": "DELTA OFFICE DEPOT",
+        "cents": -64015,
+        "date": "2025-08-16"
+      }
+    ]
+  },
+  "integrity": {
+    "balanceMismatches": [
+      {
+        "rows": [
+          41,
+          42
+        ],
+        "expectedCents": 2720221,
+        "actualCents": 2710221,
+        "proof": "expected 27,202.21, statement says 27,102.21, gap between rows 41–42"
+      }
+    ],
+    "duplicateRows": [
+      {
+        "rows": [
+          15,
+          16
+        ],
+        "proof": "expected 30,090.51, statement says 30,260.28, gap between rows 15–16"
+      }
+    ],
+    "dateGaps": [
+      {
+        "rows": [
+          23,
+          24
+        ],
+        "gapDays": 21
+      }
+    ],
+    "incompletePeriod": {
+      "declaredFrom": "2025-07-01",
+      "declaredTo": "2025-09-30",
+      "actualTo": "2025-09-12"
+    }
+  }
+}

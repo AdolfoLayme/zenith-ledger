@@ -28,21 +28,31 @@ function day(raw: unknown): string | null {
 }
 const cents = (raw: unknown): number | null => (AMOUNT.test(str(raw).replace(/\s/g, '')) ? toCents(str(raw).replace(/\s/g, '')) : null);
 
-function row(date: unknown, description: unknown, amount: unknown): StatementRow | null {
+function row(date: unknown, description: unknown, amount: unknown, balance?: unknown): StatementRow | null {
   const d = day(date), c = cents(amount), text = str(description).replace(/\s+/g, ' ');
-  return d && c !== null && text ? { date: d, description: text, amountCents: c, currency: 'USD', balanceCents: null } : null;
+  const b = balance !== undefined && str(balance) !== '' ? cents(balance) : null;
+  if (balance !== undefined && str(balance) !== '' && b === null) return null;
+  return d && c !== null && text ? { date: d, description: text, amountCents: c, currency: 'USD', balanceCents: b } : null;
 }
 
 const NOTHING = 'No transactions could be read from this photo. Try a sharper, straight-on picture.';
 
 /**
- * One printed statement row, copied by the model as a single line of text: date first, amount (with cents) last.
+ * One printed statement row, copied by the model as a single line of text: date first, amount (and optional running balance) last.
  * Measured with Gemini Nano on 2026-11-12: asking for separate date/description/amount fields made it read the
  * amount column out of step with the rows; copying each row as one line kept them together.
  */
 function splitRowText(text: unknown): StatementRow | null {
   const words = str(text).split(/\s+/);
   if (words.length < 3 || !/\.\d{2}\)?$/.test(words[words.length - 1])) return null;
+  if (
+    words.length >= 4 &&
+    /\.\d{2}\)?$/.test(words[words.length - 2]) &&
+    cents(words[words.length - 2]) !== null &&
+    cents(words[words.length - 1]) !== null
+  ) {
+    return row(words[0], words.slice(1, -2).join(' '), words[words.length - 2], words[words.length - 1]);
+  }
   return row(words[0], words.slice(1, -1).join(' '), words[words.length - 1]);
 }
 
@@ -96,11 +106,30 @@ export function misreadCard(description: string): boolean {
 }
 
 /** Rows as the user left them on the review screen. Anything still invalid is named, not silently dropped. */
-export function rowsFromReview(edited: { date: string; description: string; amount: string }[]): StatementRow[] {
+export function rowsFromReview(
+  edited: { date: string; description: string; amount: string; balance?: string; page?: number }[],
+  initial?: { date: string; description: string; amount: string; balance?: string }[],
+): StatementRow[] {
   if (!edited.length) throw new Error('Keep at least one transaction.');
   return edited.map((e, i) => {
-    const r = row(e.date, e.description, e.amount);
+    const r = row(e.date, e.description, e.amount, e.balance);
     if (!r) throw new Error(`Row ${i + 1}: use a date like 2025-09-13, a description, and an amount like -236.40.`);
+    if (e.page !== undefined) r.page = e.page;
+    const raw = initial?.[i];
+    if (raw) {
+      const editedByUser =
+        raw.date.trim() !== e.date.trim() ||
+        raw.description.trim() !== e.description.trim() ||
+        raw.amount.trim() !== e.amount.trim() ||
+        (raw.balance ?? '').trim() !== (e.balance ?? '').trim();
+      r.photo = {
+        rawDate: raw.date,
+        rawDescription: raw.description,
+        rawAmount: raw.amount,
+        ...(raw.balance ? { rawBalance: raw.balance } : {}),
+        editedByUser,
+      };
+    }
     return r;
   });
 }

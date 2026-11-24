@@ -1,15 +1,19 @@
 import { detectSignals, totals, type Signal, type Txn } from './analytics';
 import { detectPii } from './detectors';
+import { checkStatementIntegrity, inferDeclaredPeriod, type IntegrityIssue, type IntegrityOptions } from './integrity';
 import { sha256Hex, countRawLeaks, type CloudPayload, type Counters } from './payload';
 import { createAliaser, redact } from './pseudonymize';
 import type { Thresholds } from './thresholds';
-import type { RowEntities, Span, StatementRow } from './types';
+import type { PhotoProvenance, RowEntities, Span, StatementRow } from './types';
 
 export interface AnalyzedRow {
   index: number;
   date: string;
   description: string;
   amountCents: number;
+  balanceCents: number | null;
+  page?: number;
+  photo?: PhotoProvenance;
   spans: Span[];
   /** Description with sensitive values swapped for aliases. Local display only. */
   redacted: string;
@@ -24,6 +28,7 @@ export interface LocalAnalysis {
   rows: AnalyzedRow[];
   txns: Txn[];
   signals: Signal[];
+  integrity: IntegrityIssue[];
   totals: ReturnType<typeof totals>;
   /** alias -> original value. Never leaves the device. */
   aliases: Map<string, string>;
@@ -68,7 +73,10 @@ function personSpans(text: string, persons: string[], taken: Span[]): Span[] {
   return out;
 }
 
-export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEntities[]; thresholds?: Thresholds } = {}): LocalAnalysis {
+export function analyzeLocally(
+  input: StatementRow[],
+  opts: { entities?: RowEntities[]; thresholds?: Thresholds; fileName?: string; integrity?: IntegrityOptions } = {},
+): LocalAnalysis {
   const aliaser = createAliaser();
   const assisted = !!opts.entities;
   let piiFound = 0;
@@ -79,7 +87,14 @@ export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEnti
     piiFound += spans.length;
     const merchant = (ent?.merchant?.trim().toUpperCase()) || guessMerchant(r.description, spans);
     return {
-      index, date: r.date, description: r.description, amountCents: r.amountCents, spans,
+      index,
+      date: r.date,
+      description: r.description,
+      amountCents: r.amountCents,
+      balanceCents: r.balanceCents ?? null,
+      ...(r.page !== undefined ? { page: r.page } : {}),
+      ...(r.photo ? { photo: r.photo } : {}),
+      spans,
       redacted: redact(r.description, spans, aliaser),
       vendorAlias: aliaser.alias('vendor', merchant),
       category: ent?.category || guessCategory(r.description, r.amountCents),
@@ -87,11 +102,13 @@ export function analyzeLocally(input: StatementRow[], opts: { entities?: RowEnti
   });
   const txns: Txn[] = rows.map((r) => ({ id: r.index, date: r.date, amountCents: r.amountCents, vendor: r.vendorAlias, category: r.category }));
   const dates = rows.map((r) => r.date).sort();
+  const declaredPeriod = opts.integrity?.declaredPeriod ?? (opts.fileName ? inferDeclaredPeriod(opts.fileName, input) : undefined);
+  const integrity = checkStatementIntegrity(input, { ...opts.integrity, ...(declaredPeriod ? { declaredPeriod } : {}) });
   return {
     mode: assisted ? 'assisted' : 'strict',
     currency: input[0]?.currency ?? 'USD',
     period: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
-    rows, txns, signals: detectSignals(txns, opts.thresholds), totals: totals(txns), aliases: aliaser.map,
+    rows, txns, signals: detectSignals(txns, opts.thresholds), integrity, totals: totals(txns), aliases: aliaser.map,
     counters: { piiFound, piiReplaced: piiFound, rawDescriptionsSent: 0 },
   };
 }

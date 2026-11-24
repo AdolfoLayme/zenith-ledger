@@ -160,13 +160,18 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
     await expect(clientPage.getByTestId('integrity-check')).toContainText('gap between rows 41–42');
 
-    // Open the duplicate anomaly dossier and mark it "Ask my accountant" with a question containing a real vendor name
-    const dupAlert = clientPage.getByTestId('alert-duplicate').first();
+    // The BRIGHTLINE lines 15-16 repeat with the same balance: integrity proves an export error, not a double charge
+    const exportDup = clientPage.getByTestId('alert-duplicate').first();
+    await expect(exportDup).toContainText('Likely export duplicate');
+    await expect(exportDup).not.toContainText('Possible duplicate');
+
+    // Open a real double charge and mark it "Ask my accountant" with a question containing a real vendor name
+    const dupAlert = clientPage.getByTestId('alert-duplicate').filter({ hasText: 'Possible duplicate' }).first();
     if ((await dupAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
       await dupAlert.locator('.sig-btn').click();
     }
     await dupAlert.getByRole('button', { name: 'Ask my accountant' }).click();
-    await dupAlert.getByLabel('Decision note').fill('Did BRIGHTLINE PLUMBING double-charge us here?');
+    await dupAlert.getByLabel('Decision note').fill('Did DELTA OFFICE double-charge us here?');
 
     // Review pack in Privacy Firewall
     await clientPage.getByTestId('review-pack-firewall').click();
@@ -176,7 +181,7 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     expect(packJson).toContain('"selectedAlertCount": 1');
     expect(packJson).toContain('"selectedRowCount": 2');
     for (const v of seeded) expect(packJson.toLowerCase(), v).not.toContain(v.toLowerCase());
-    expect(packJson).not.toContain('BRIGHTLINE PLUMBING');
+    expect(packJson).not.toContain('DELTA OFFICE');
 
     // Approve and create expiring link
     await clientPage.getByTestId('approve-pack').click();
@@ -189,15 +194,19 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     await accountantPage.goto(shareUrl);
     await expect(accountantPage.getByTestId('accountant-view')).toBeVisible();
     await expect(accountantPage.getByTestId('pack-item-duplicate')).toBeVisible();
+    const header = accountantPage.getByTestId('accountant-header');
+    await expect(header).toContainText('Zenith Ledger · Accountant review');
+    await expect(accountantPage.getByRole('navigation', { name: 'Progress' })).toHaveCount(0);
+    await expect(accountantPage.getByRole('button', { name: /Data Receipts/ })).toHaveCount(0);
     const accountantText = (await accountantPage.locator('section').textContent()) ?? '';
-    expect(accountantText).not.toContain('BRIGHTLINE PLUMBING');
+    expect(accountantText).not.toContain('DELTA OFFICE');
     expect(accountantText).toMatch(/Vendor_[A-Z]+/);
 
     // Accountant asks Gemini in the cloud for a draft reply (which sees only aliases) and sends it
     await accountantPage.getByTestId('draft-reply-gemini').click();
     await expect(accountantPage.getByTestId('accountant-reply-input')).toHaveValue(/Vendor_[A-Z]+/);
     const draftValue = await accountantPage.getByTestId('accountant-reply-input').inputValue();
-    expect(draftValue).not.toContain('BRIGHTLINE PLUMBING');
+    expect(draftValue).not.toContain('DELTA OFFICE');
     await accountantPage.getByTestId('send-accountant-reply').click();
     await expect(accountantPage.getByTestId('reply-saved-badge')).toBeVisible();
 
@@ -206,7 +215,7 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     const replyCard = clientPage.getByTestId('reidentified-reply').first();
     await expect(replyCard).toBeVisible();
     const clientReplyText = (await replyCard.textContent()) ?? '';
-    expect(clientReplyText).toContain('BRIGHTLINE PLUMBING');
+    expect(clientReplyText).toContain('DELTA OFFICE');
     expect(clientReplyText).not.toMatch(/\bVendor_[A-Z]+\b/);
   } finally {
     await clientCtx.close();

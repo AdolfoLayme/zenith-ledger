@@ -50,12 +50,12 @@ for (const [name, viewport] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.getByRole('button', { name: 'Zenith Ledger' }).click();
     await page.getByTestId('file').setInputFiles('public/samples/acme-q3-gaps.csv');
     await expect(page.getByTestId('integrity-check')).toContainText('gap between rows 41–42');
-    const dupAlert = page.getByTestId('alert-duplicate').first();
+    const dupAlert = page.getByTestId('alert-duplicate').filter({ hasText: 'Possible duplicate' }).first();
     if ((await dupAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
       await dupAlert.locator('.sig-btn').click();
     }
     await dupAlert.getByRole('button', { name: 'Ask my accountant' }).click();
-    await dupAlert.getByLabel('Decision note').fill('Did BRIGHTLINE PLUMBING double-charge us on this order?');
+    await dupAlert.getByLabel('Decision note').fill('Did DELTA OFFICE double-charge us on this order?');
     await shot('6a-integrity-and-dossier');
 
     await page.getByTestId('review-pack-firewall').click();

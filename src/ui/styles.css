@@ -9,6 +9,9 @@ button { font: inherit; }
 .shell { max-width: 1120px; margin: 0 auto; padding: 0 20px 64px; }
 header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--line); margin-bottom: 28px; flex-wrap: wrap; }
 .brand { font: inherit; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; }
+.brand.static { cursor: default; }
+header.top.minimal { flex-wrap: nowrap; }
+header.top.minimal .badge { flex-shrink: 0; }
 .brand i { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: inline-block; }
 .steps { display: flex; gap: 6px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
 .steps span { padding: 4px 10px; border-radius: 999px; }
@@ -126,7 +129,7 @@ table.review .hint { display: block; margin-top: 4px; color: var(--warn); font-s
 .kv span { display: block; font-size: 12px; color: var(--muted); }
 .kv b { font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .decision-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-.note-input { width: 100%; font: inherit; font-size: 13.5px; color: var(--text); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
+.note-input { width: 100%; resize: vertical; font: inherit; font-size: 13.5px; color: var(--text); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
 .note-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
 .origin-list { display: grid; gap: 8px; }
 .origin-row { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }

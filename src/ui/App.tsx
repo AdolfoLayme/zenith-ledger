@@ -411,16 +411,23 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
 
   return (
     <div className="shell">
-      <header className="top">
-        <button className="brand" onClick={() => setScreen('upload')}><i />Zenith Ledger</button>
-        <nav className="steps" aria-label="Progress">
-          {STEPS.map(([k, label], i) => <span key={k} className={i === idx ? 'on' : i < idx ? 'past' : ''}>{i + 1}. {label}</span>)}
-        </nav>
-        <div className="row tools">
+      {screen === 'accountant' ? (
+        <header className="top minimal" data-testid="accountant-header">
+          <span className="brand static"><i />Zenith Ledger · Accountant review</span>
           <span className={`badge ${online ? 'accent' : 'warn'}`} data-testid="net"><span className="dot" />{online ? 'Online' : 'Offline'}</span>
-          <button className={`btn small ${screen === 'receipts' ? 'active' : ''}`} onClick={() => setScreen('receipts')}>Data Receipts <span className="count">{history.length}</span></button>
-        </div>
-      </header>
+        </header>
+      ) : (
+        <header className="top">
+          <button className="brand" onClick={() => setScreen('upload')}><i />Zenith Ledger</button>
+          <nav className="steps" aria-label="Progress">
+            {STEPS.map(([k, label], i) => <span key={k} className={i === idx ? 'on' : i < idx ? 'past' : ''}>{i + 1}. {label}</span>)}
+          </nav>
+          <div className="row tools">
+            <span className={`badge ${online ? 'accent' : 'warn'}`} data-testid="net"><span className="dot" />{online ? 'Online' : 'Offline'}</span>
+            <button className={`btn small ${screen === 'receipts' ? 'active' : ''}`} onClick={() => setScreen('receipts')}>Data Receipts <span className="count">{history.length}</span></button>
+          </div>
+        </header>
+      )}
 
       {error && <div className="note warn" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
 
@@ -952,8 +959,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                       </div>
 
                       <h4>Your accounting response (uses aliases; client browser restores real names locally)</h4>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={3}
                         className="note-input"
                         data-testid="accountant-reply-input"
                         aria-label={`Accountant response for ${item.title}`}

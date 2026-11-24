@@ -5,6 +5,7 @@ import type { CloudReport } from '../ai/types';
 import { useConfig } from '../config/useConfig';
 import { parseStatement } from '../core/csv';
 import { buildDossiers, type AlertDecision, type DecisionStatus, type EvidenceDossier } from '../core/dossier';
+import { buildAccountantCaseCsv, buildAccountantCaseJson } from '../core/export';
 import { analyzeLocally, buildPayload, summaryOverview, type AnalyzedRow, type BuiltPayload, type LocalAnalysis } from '../core/pipeline';
 import type { StatementRow } from '../core/types';
 import { reidentify } from '../core/pseudonymize';
@@ -378,6 +379,36 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const askCount = dossiers.filter((d) => decisions[d.id]?.status === 'ask_accountant').length;
   const idx = STEPS.findIndex(([k]) => k === (screen === 'review' ? 'upload' : screen));
 
+  function downloadFile(name: string, content: string, mime: string) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCase(kind: 'csv' | 'json') {
+    if (!analysis) return;
+    const repliesMap = Object.fromEntries((sharedPack?.replies ?? []).map((r) => [r.alertId, r.reply]));
+    const opts = {
+      fileName,
+      period: analysis.period,
+      currency: analysis.currency,
+      aliases: analysis.aliases,
+      replies: repliesMap,
+    };
+    const base = (fileName || 'statement').replace(/\.[^.]+$/, '');
+    if (kind === 'csv') {
+      downloadFile(`${base}-accountant-case.csv`, buildAccountantCaseCsv(dossiers, decisions, opts), 'text/csv;charset=utf-8');
+    } else {
+      downloadFile(`${base}-accountant-case.json`, buildAccountantCaseJson(dossiers, decisions, opts), 'application/json');
+    }
+  }
+
   return (
     <div className="shell">
       <header className="top">
@@ -599,15 +630,23 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                     : `${askCount} ${askCount === 1 ? 'alert' : 'alerts'} marked for your accountant. Only those origin rows will be shared, with aliases.`}
                 </span>
               </div>
-              <button
-                type="button"
-                className="btn primary"
-                data-testid="review-pack-firewall"
-                disabled={askCount === 0 || busy}
-                onClick={toPackFirewall}
-              >
-                Review pack in Privacy Firewall
-              </button>
+              <div className="row">
+                <button type="button" className="btn small" data-testid="export-case-csv" onClick={() => exportCase('csv')}>
+                  Export case CSV
+                </button>
+                <button type="button" className="btn small" data-testid="export-case-json" onClick={() => exportCase('json')}>
+                  Export case JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  data-testid="review-pack-firewall"
+                  disabled={askCount === 0 || busy}
+                  onClick={toPackFirewall}
+                >
+                  Review pack in Privacy Firewall
+                </button>
+              </div>
             </div>
 
             {sharedPack && (

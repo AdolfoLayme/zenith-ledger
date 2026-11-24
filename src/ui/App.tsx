@@ -686,8 +686,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                 <h3 style={{ margin: 0 }}>Period-over-period comparison</h3>
                 <span className="muted">
                   {priorPeriod
-                    ? `Comparing ${inferPeriodLabel(analysis.period, fileName)} against ${priorPeriod.label} (${priorPeriod.fileName} · aggregate aliases, amounts & counts in IndexedDB, 0 raw rows). Detects new subscriptions, recurring price increases, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`
-                    : `Load a prior statement or use the aggregate period summary saved in IndexedDB (aliases, amounts and counts only; never raw rows) to spot new subscriptions, recurring price increases, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`}
+                    ? `Comparing ${inferPeriodLabel(analysis.period, fileName)} against ${priorPeriod.label} (${priorPeriod.fileName} · aggregate aliases, amounts & counts in IndexedDB, 0 raw rows). Detects new subscriptions, recurring rate hikes, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`
+                    : `Load a prior statement or use the aggregate period summary saved in IndexedDB (aliases, amounts and counts only; never raw rows) to spot new subscriptions, recurring rate hikes, disappeared recurring charges, and categories growing >= ${config.thresholds.categoryGrowthMinPercent}%.`}
                 </span>
               </div>
               <div className="row">

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { devices, test, expect } from '@playwright/test';
 
 // Screenshots for visual review: SHOTS_DIR=<dir> pnpm e2e screens
 const dir = process.env.SHOTS_DIR;
@@ -82,5 +82,35 @@ for (const [name, viewport] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.getByTestId('refresh-pack-replies').click();
     await expect(page.getByTestId('reidentified-reply')).toBeVisible();
     await shot('6e-client-reidentified-reply');
+
+    // Phase 3 screens (f3- prefix): export duplicates separate, period-over-period comparison, mobile-first accountant view, ARIA grid sample, and mobile no-Nano notice
+    await page.screenshot({ path: `${dir}/f3-${name}-2-export-duplicates-separate.png`, fullPage: true });
+
+    await page.getByRole('button', { name: 'Zenith Ledger' }).click();
+    await page.getByTestId('file').setInputFiles('public/samples/acme-q3.csv');
+    await expect(page.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+    await page.getByTestId('compare-sample-q2').click();
+    await expect(page.getByTestId('comparison-badge')).toContainText('vs Q2 2025');
+    await page.screenshot({ path: `${dir}/f3-${name}-1-period-comparison.png`, fullPage: true });
+
+    const accPageF3 = await context.newPage();
+    await accPageF3.setViewportSize(viewport);
+    await accPageF3.goto(shareUrl);
+    await expect(accPageF3.getByTestId('accountant-view')).toBeVisible();
+    await accPageF3.screenshot({ path: `${dir}/f3-${name}-3-accountant-view.png`, fullPage: true });
+    await accPageF3.goto('/samples/bank-aria-grid.html');
+    await expect(accPageF3.getByRole('heading', { name: 'Harbor Commercial Treasury' })).toBeVisible();
+    await accPageF3.screenshot({ path: `${dir}/f3-${name}-4-aria-grid-sample.png`, fullPage: true });
+    await accPageF3.close();
+
+    if (name === 'mobile') {
+      const { defaultBrowserType: _bt, ...pixelOpts } = devices['Pixel 7'];
+      const mobileUaCtx = await page.context().browser()!.newContext(pixelOpts);
+      const mobileUaPage = await mobileUaCtx.newPage();
+      await mobileUaPage.goto('/');
+      await expect(mobileUaPage.getByTestId('no-nano-notice')).toBeVisible();
+      await mobileUaPage.screenshot({ path: `${dir}/f3-mobile-0-pwa-no-nano.png`, fullPage: true });
+      await mobileUaCtx.close();
+    }
   });
 }

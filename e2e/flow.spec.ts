@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { devices, expect, test, type Page } from '@playwright/test';
+import { MOBILE_NO_NANO_NOTICE } from '../src/pwa/pwa';
 
 const truth = JSON.parse(readFileSync('public/samples/acme-q3.truth.json', 'utf8')) as { pii: Record<string, string[]> };
 const seeded = Object.values(truth.pii).flat();
@@ -225,3 +226,58 @@ test('Accountant Review Pack: two browser contexts (client and accountant), fire
     await accountantCtx.close();
   }
 });
+
+for (const [deviceName, descriptor] of [
+  ['Pixel 7', devices['Pixel 7']],
+  ['iPhone 14', devices['iPhone 14']],
+] as const) {
+  test(`Mobile (${deviceName}): detects no Gemini Nano, runs local deterministic analysis + Privacy Firewall, and serves mobile-first Accountant View`, async ({ browser }) => {
+    const { defaultBrowserType: _bt, ...contextOpts } = descriptor;
+    const clientCtx = await browser.newContext(contextOpts);
+    const accountantCtx = await browser.newContext(contextOpts);
+    try {
+      const clientPage = await clientCtx.newPage();
+      await clientPage.goto('/');
+
+      // On mobile there is no Gemini Nano: the app detects it and shows the explicit notice
+      await expect(clientPage.getByTestId('no-nano-notice')).toContainText(MOBILE_NO_NANO_NOTICE);
+      await expect(clientPage.getByRole('button', { name: 'Enable on-device AI' })).toHaveCount(0);
+
+      // Client runs deterministic local analysis and Privacy Firewall on mobile
+      await upload(clientPage, 'public/samples/acme-q3.csv');
+      await expect(clientPage.getByRole('heading', { name: 'Local analysis' })).toBeVisible();
+      await expect(clientPage.locator('.stat b').first()).toHaveText('117');
+
+      // Mark an alert for accountant review from the phone
+      const dupAlert = clientPage.getByTestId('alert-duplicate').first();
+      if ((await dupAlert.locator('.sig-btn').getAttribute('aria-expanded')) !== 'true') {
+        await dupAlert.locator('.sig-btn').click();
+      }
+      await dupAlert.getByRole('button', { name: 'Ask my accountant' }).click();
+      await dupAlert.getByLabel('Decision note').fill('Please verify this DELTA OFFICE charge from mobile.');
+
+      await clientPage.getByTestId('review-pack-firewall').click();
+      await expect(clientPage.getByTestId('pack-firewall')).toBeVisible();
+      await clientPage.getByTestId('approve-pack').click();
+      await expect(clientPage.getByTestId('shared-pack-card')).toBeVisible();
+      const shareUrl = ((await clientPage.getByTestId('pack-share-url').textContent()) ?? '').trim();
+
+      // Accountant opens the ?pack= link on their phone and responds
+      const accountantPage = await accountantCtx.newPage();
+      await accountantPage.goto(shareUrl);
+      await expect(accountantPage.getByTestId('accountant-view')).toBeVisible();
+      await expect(accountantPage.getByTestId('accountant-header')).toContainText('Zenith Ledger · Accountant review');
+      await accountantPage.getByTestId('draft-reply-gemini').click();
+      await expect(accountantPage.getByTestId('accountant-reply-input')).toHaveValue(/Vendor_[A-Z]+/);
+      await accountantPage.getByTestId('send-accountant-reply').click();
+      await expect(accountantPage.getByTestId('reply-saved-badge')).toBeVisible();
+
+      // Client receives and re-identifies the reply on mobile
+      await clientPage.getByTestId('refresh-pack-replies').click();
+      await expect(clientPage.getByTestId('reidentified-reply').first()).toContainText('DELTA OFFICE');
+    } finally {
+      await clientCtx.close();
+      await accountantCtx.close();
+    }
+  });
+}

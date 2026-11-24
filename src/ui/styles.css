@@ -97,13 +97,28 @@ ol.receipts .muted, .card .grid .muted { font-size: 12.5px; }
   /* transactions: one block per row instead of a squeezed table */
   .tablewrap table, .tablewrap tbody { display: block; }
   .tablewrap thead { display: none; }
-  .tablewrap tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
-  .tablewrap tr:first-child { border-top: 0; }
+  .tablewrap:not(.pack-table) tr { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .tablewrap:not(.pack-table) tr:first-child { border-top: 0; }
   .tablewrap td { display: block; padding: 0; border: 0; }
-  .tablewrap td:nth-child(1) { grid-area: 1 / 1; white-space: nowrap; word-break: normal; color: var(--muted); }
-  .tablewrap td:nth-child(2) { grid-area: 2 / 1 / 3 / 3; }
-  .tablewrap td:nth-child(3) { grid-area: 3 / 1; }
-  .tablewrap td:nth-child(4) { grid-area: 1 / 2; }
+  .tablewrap:not(.pack-table) td:nth-child(1) { grid-area: 1 / 1; white-space: nowrap; word-break: normal; color: var(--muted); }
+  .tablewrap:not(.pack-table) td:nth-child(2) { grid-area: 2 / 1 / 3 / 3; }
+  .tablewrap:not(.pack-table) td:nth-child(3) { grid-area: 3 / 1; }
+  .tablewrap:not(.pack-table) td:nth-child(4) { grid-area: 1 / 2; }
+  /* mobile-first accountant review pack origin rows (6 columns: line, date, alias, category, amount, balance) */
+  .tablewrap.pack-table tr { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; padding: 10px 12px; border-top: 1px solid var(--line); align-items: center; }
+  .tablewrap.pack-table tr:first-child { border-top: 0; }
+  .tablewrap.pack-table td:nth-child(1) { grid-area: 1 / 1; color: var(--muted); font-weight: 600; }
+  .tablewrap.pack-table td:nth-child(2) { grid-area: 1 / 2; color: var(--muted); }
+  .tablewrap.pack-table td:nth-child(5) { grid-area: 1 / 3; font-weight: 650; }
+  .tablewrap.pack-table td:nth-child(3) { grid-area: 2 / 1 / 3 / 2; font-weight: 600; }
+  .tablewrap.pack-table td:nth-child(4) { grid-area: 2 / 2 / 3 / 3; }
+  .tablewrap.pack-table td:nth-child(6) { grid-area: 2 / 3 / 3 / 4; color: var(--muted); font-size: 12px; }
+  .tablewrap.pack-table td:nth-child(6)::before { content: "bal "; }
+  /* mobile-first accountant response inputs and touch targets */
+  [data-testid="accountant-view"] .note-input { font-size: 16px; min-height: 96px; padding: 10px 12px; }
+  .accountant-actions { flex-direction: column; align-items: stretch; }
+  .accountant-actions .btn { width: 100%; justify-content: center; min-height: 44px; font-size: 14.5px; }
+  .accountant-actions .badge { align-self: flex-start; }
 }
 .choose p { color: var(--text); }
 .choose .row { justify-content: center; }

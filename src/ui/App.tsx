@@ -12,6 +12,7 @@ import { reidentify } from '../core/pseudonymize';
 import { clearLocalData, listDecisions, listReceipts, saveAliasMap, saveDecision, saveDossiers, saveReceipt, type Receipt } from '../store/receipts';
 import { openPackStore } from '../pack/firestore';
 import { buildAccountantPack, type AccountantPackDoc, type BuiltAccountantPack, type PackItem, type PackReply } from '../pack/pack';
+import { isMobileDevice, MOBILE_NO_NANO_NOTICE } from '../pwa/pwa';
 import { openReceiptVault } from '../vault/firestore';
 import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
@@ -54,13 +55,14 @@ export interface ExtensionBridge {
 
 export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const ai = useMemo(getAi, []);
+  const isMobile = useMemo(() => isMobileDevice(), []);
   const config = useConfig(ai.mode === 'firebase');
   const online = useOnline();
   const [screen, setScreen] = useState<Screen>('upload');
   const [fileName, setFileName] = useState('');
   const [analysis, setAnalysis] = useState<LocalAnalysis | null>(null);
   const [built, setBuilt] = useState<BuiltPayload | null>(null);
-  const [nano, setNano] = useState<Nano>(ai.onDevice ? 'idle' : 'unavailable');
+  const [nano, setNano] = useState<Nano>(ai.onDevice && !isMobile ? 'idle' : 'unavailable');
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState('');
@@ -111,9 +113,9 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
 
   // A model downloaded on an earlier visit needs no click: start it right away.
   useEffect(() => {
-    if (!ai.onDevice) return;
+    if (!ai.onDevice || isMobile) return;
     ai.onDevice.alreadyAvailable().then((yes) => { if (yes) enableNano(); }).catch(() => {});
-  }, [ai.onDevice]);
+  }, [ai.onDevice, isMobile]);
 
   // If opened with ?pack=<packId>, load the Accountant Review Pack directly without requiring an account.
   useEffect(() => {
@@ -484,9 +486,9 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <div>
                 <h3>On-device AI (Gemini Nano)</h3>
-                <span className="muted">
+                <span className="muted" data-testid={nano === 'unavailable' ? 'no-nano-notice' : undefined}>
                   {nano === 'ready' ? 'Ready. Names and merchants will be found by the on-device model.'
-                    : nano === 'unavailable' ? 'Not available in this browser. Strict mode: only rule-based detectors run, free-text descriptions are dropped from anything sent, and photos cannot be read.'
+                    : nano === 'unavailable' ? `${MOBILE_NO_NANO_NOTICE}. Strict mode: only rule-based detectors run, free-text descriptions are dropped from anything sent, and photos cannot be read.`
                     : nano === 'downloading' ? 'Preparing the model. The first download can take a few minutes.'
                     : 'Optional for CSV, required for photos. Finds person and business names inside free-text descriptions, fully offline.'}
                 </span>
@@ -967,7 +969,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                       </div>
 
                       <h4>Shared pseudonymized origin rows ({item.rows.length})</h4>
-                      <div className="tablewrap">
+                      <div className="tablewrap pack-table">
                         <table>
                           <thead>
                             <tr><th>Line</th><th>Date</th><th>Vendor alias</th><th>Category</th><th className="num">Amount</th><th className="num">Balance</th></tr>
@@ -997,7 +999,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                         value={replyDrafts[item.alertId] ?? ''}
                         onChange={(e) => setReplyDrafts((curr) => ({ ...curr, [item.alertId]: e.target.value }))}
                       />
-                      <div className="row mt">
+                      <div className="row mt accountant-actions">
                         {ai.cloud && (
                           <button
                             type="button"

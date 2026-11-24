@@ -25,6 +25,10 @@ describe('formatProof', () => {
       'expected 1,204.10, statement says 1,104.10, gap between rows 41–42',
     );
   });
+
+  it('names a single row instead of a range like 1–1', () => {
+    expect(formatProof(100, 200, 1, 1)).toBe('expected 1.00, statement says 2.00, at row 1');
+  });
 });
 
 describe('checkStatementIntegrity', () => {
@@ -74,27 +78,44 @@ describe('checkStatementIntegrity', () => {
         type: 'date_gap',
         rows: [2, 3],
         gapDays: 24,
-        proof: 'expected 4,900.00, statement says 4,900.00, gap between rows 2–3',
+        proof: 'no transactions for 24 days between 2025-07-05 (row 2) and 2025-07-29 (row 3)',
       }),
     ]);
+    expect(issues[0].expectedCents).toBeUndefined();
   });
 
-  it('detects exact duplicate rows caused by export errors', () => {
+  it('detects exact duplicate rows caused by export errors when the balance did not move', () => {
     const rows: StatementRow[] = [
       row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 120410),
       row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 120410),
       row('2025-08-12', 'CITY POWER & WATER utility bill', -20000, 100410),
     ];
     const issues = checkStatementIntegrity(rows);
-    const dup = issues.find((x) => x.type === 'duplicate_row');
-    expect(dup).toBeDefined();
-    expect(dup).toMatchObject({
-      type: 'duplicate_row',
-      rows: [1, 2],
-      expectedCents: 101990,
-      actualCents: 120410,
-      proof: 'expected 1,019.90, statement says 1,204.10, gap between rows 1–2',
-    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        type: 'duplicate_row',
+        rows: [1, 2],
+        proof:
+          'rows 1 and 2 are identical (date, description, amount, balance 1,204.10): the balance did not move, so the export repeated the line',
+      }),
+    ]);
+  });
+
+  it('does not call a repeated charge an export error when the balance moved both times', () => {
+    const rows: StatementRow[] = [
+      row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 120410),
+      row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 101990),
+      row('2025-08-12', 'CITY POWER & WATER utility bill', -20000, 81990),
+    ];
+    expect(checkStatementIntegrity(rows)).toEqual([]);
+  });
+
+  it('cannot prove an export duplicate without a balance column', () => {
+    const rows: StatementRow[] = [
+      row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420),
+      row('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420),
+    ];
+    expect(checkStatementIntegrity(rows)).toEqual([]);
   });
 
   it('detects periods that do not cover the declared range', () => {
@@ -107,19 +128,29 @@ describe('checkStatementIntegrity', () => {
       row('2025-08-29', 'Telecom line', -9500, 172600),
     ];
     const issues = checkStatementIntegrity(rows, {
-      declaredPeriod: { from: '2025-07-01', to: '2025-09-30' },
-      closingBalanceCents: 152600,
+      declaredPeriod: { from: '2025-07-01', to: '2025-09-30', label: 'Q3' },
     });
-    const inc = issues.find((x) => x.type === 'incomplete_period');
-    expect(inc).toBeDefined();
-    expect(inc).toMatchObject({
-      type: 'incomplete_period',
-      rows: [6, 6],
-      expectedCents: 152600,
-      actualCents: 172600,
-      gapDays: 32,
-      proof: 'expected 1,526.00, statement says 1,726.00, gap between rows 6–6',
-    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        type: 'incomplete_period',
+        rows: [6, 6],
+        gapDays: 32,
+        proof:
+          'statement covers 2025-07-02 to 2025-08-29, declared Q3 is 2025-07-01 to 2025-09-30: 32 days missing at the end',
+      }),
+    ]);
+  });
+
+  it('reports a period that starts late as missing days at the start', () => {
+    const rows: StatementRow[] = [
+      row('2025-07-20', 'ACH deposit', 150000, 350000),
+      row('2025-07-31', 'Office supplies', -5000, 345000),
+    ];
+    const [issue] = checkStatementIntegrity(rows, { declaredPeriod: { from: '2025-07-01', to: '2025-07-31' } });
+    expect(issue.rows).toEqual([1, 1]);
+    expect(issue.proof).toBe(
+      'statement covers 2025-07-20 to 2025-07-31, declared period is 2025-07-01 to 2025-07-31: 19 days missing at the start',
+    );
   });
 
   it('detects missing pages (balance jumps across page boundaries) in multi-page photo reads', () => {
@@ -143,6 +174,21 @@ describe('checkStatementIntegrity', () => {
     );
   });
 
+  it('reports a skipped page number when there is no balance column to prove the loss', () => {
+    const rows: StatementRow[] = [
+      row('2025-09-02', 'ACH deposit', 214000, null, 1),
+      row('2025-09-08', 'PINECREST INSURANCE premium', -38000, null, 3),
+    ];
+    expect(checkStatementIntegrity(rows)).toEqual([
+      expect.objectContaining({
+        type: 'missing_page',
+        rows: [1, 2],
+        pages: [1, 3],
+        proof: '1 page missing: the statement jumps from page 1 (row 1) to page 3 (row 2)',
+      }),
+    ]);
+  });
+
   it('reports zero integrity issues on the clean synthetic acme-q3 and acme-q4 statements', () => {
     for (const name of ['acme-q3.csv', 'acme-q4.csv']) {
       const rows = parseStatement(readFileSync(`public/samples/${name}`, 'utf8'));
@@ -158,8 +204,8 @@ describe('checkStatementIntegrity', () => {
       integrity: {
         balanceMismatches: { rows: [number, number]; expectedCents: number; actualCents: number; proof: string }[];
         duplicateRows: { rows: [number, number]; proof: string }[];
-        dateGaps: { rows: [number, number]; gapDays: number }[];
-        incompletePeriod: { declaredFrom: string; declaredTo: string; actualTo: string };
+        dateGaps: { rows: [number, number]; gapDays: number; proof: string }[];
+        incompletePeriod: { declaredFrom: string; declaredTo: string; actualTo: string; proof: string };
       };
     };
     const declaredPeriod = inferDeclaredPeriod('acme-q3-gaps.csv', rows);
@@ -190,6 +236,6 @@ describe('checkStatementIntegrity', () => {
 
     const incomplete = issues.filter((i) => i.type === 'incomplete_period');
     expect(incomplete).toHaveLength(1);
-    expect(incomplete[0].detail).toContain(truth.integrity.incompletePeriod.declaredTo);
+    expect(incomplete[0].proof).toBe(truth.integrity.incompletePeriod.proof);
   });
 });

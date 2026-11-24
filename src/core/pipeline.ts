@@ -73,6 +73,17 @@ function personSpans(text: string, persons: string[], taken: Span[]): Span[] {
   return out;
 }
 
+/** A duplicate whose two lines the integrity check proved to be an export repeat (balance did not move) is not a double charge. */
+function markExportDuplicates(signals: Signal[], integrity: IntegrityIssue[], rows: AnalyzedRow[]): Signal[] {
+  const repeated = integrity.filter((i) => i.type === 'duplicate_row').map((i) => rows[i.rows[1] - 1]);
+  return signals.map((s) =>
+    s.type === 'duplicate' &&
+    repeated.some((r) => r.vendorAlias === s.vendor && r.amountCents === s.amountCents && s.dates.every((d) => d === r.date))
+      ? { ...s, exportDuplicate: true }
+      : s,
+  );
+}
+
 export function analyzeLocally(
   input: StatementRow[],
   opts: { entities?: RowEntities[]; thresholds?: Thresholds; fileName?: string; integrity?: IntegrityOptions } = {},
@@ -108,7 +119,7 @@ export function analyzeLocally(
     mode: assisted ? 'assisted' : 'strict',
     currency: input[0]?.currency ?? 'USD',
     period: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
-    rows, txns, signals: detectSignals(txns, opts.thresholds), integrity, totals: totals(txns), aliases: aliaser.map,
+    rows, txns, signals: markExportDuplicates(detectSignals(txns, opts.thresholds), integrity, rows), integrity, totals: totals(txns), aliases: aliaser.map,
     counters: { piiFound, piiReplaced: piiFound, rawDescriptionsSent: 0 },
   };
 }
@@ -151,7 +162,10 @@ export function summaryOverview(a: LocalAnalysis): string {
   const top = [...spend].sort((x, y) => y[1] - x[1]).slice(0, 4).map(([c, v]) => `${c} ${money(v)}`).join(', ');
   const sig = a.signals.map((s) => {
     switch (s.type) {
-      case 'duplicate': return `possible duplicate: ${s.vendor} ${money(s.amountCents)} on ${s.dates.join(' and ')}`;
+      case 'duplicate':
+        return s.exportDuplicate
+          ? `likely export duplicate, not a double charge: ${s.vendor} ${money(s.amountCents)} on ${s.dates[0]}`
+          : `possible duplicate: ${s.vendor} ${money(s.amountCents)} on ${s.dates.join(' and ')}`;
       case 'price_increase': return `price increase: ${s.vendor} ${money(s.fromCents)} to ${money(s.toCents)} on ${s.date}`;
       case 'outlier': return `unusual ${s.category} expense: ${s.vendor} ${money(s.amountCents)} on ${s.date}`;
       case 'round_transfer': return `round transfer: ${s.vendor} ${money(s.amountCents)} on ${s.date}`;

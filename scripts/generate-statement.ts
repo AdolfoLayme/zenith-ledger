@@ -204,6 +204,10 @@ function writeCorruptedQ3(name: string) {
   const gapDays =
     Math.round((Date.parse(rows[gapIdx].date + 'T00:00:00Z') - Date.parse(rows[gapIdx - 1].date + 'T00:00:00Z')) / 86400000);
 
+  const missingDays = Math.round(
+    (Date.parse('2025-09-30T00:00:00Z') - Date.parse(rows[rows.length - 1].date + 'T00:00:00Z')) / 86400000,
+  );
+
   const fmt = (c: number) =>
     `${c < 0 ? '-' : ''}${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -221,19 +225,21 @@ function writeCorruptedQ3(name: string) {
       duplicateRows: [
         {
           rows: [15, 16] as [number, number],
-          proof: `expected ${fmt(dupTarget.bal + dupTarget.cents)}, statement says ${fmt(dupTarget.bal)}, gap between rows 15–16`,
+          proof: `rows 15 and 16 are identical (date, description, amount, balance ${fmt(dupTarget.bal)}): the balance did not move, so the export repeated the line`,
         },
       ],
       dateGaps: [
         {
           rows: [gapIdx, gapIdx + 1] as [number, number],
           gapDays,
+          proof: `no transactions for ${gapDays} days between ${rows[gapIdx - 1].date} (row ${gapIdx}) and ${rows[gapIdx].date} (row ${gapIdx + 1})`,
         },
       ],
       incompletePeriod: {
         declaredFrom: '2025-07-01',
         declaredTo: '2025-09-30',
         actualTo: rows[rows.length - 1].date,
+        proof: `statement covers ${rows[0].date} to ${rows[rows.length - 1].date}, declared Q3 is 2025-07-01 to 2025-09-30: ${missingDays} days missing at the end`,
       },
     },
   };

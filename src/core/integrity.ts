@@ -7,37 +7,47 @@ export type IntegrityIssueType =
   | 'date_gap'
   | 'incomplete_period';
 
+export interface DeclaredPeriod {
+  from: string;
+  to: string;
+  /** Short name used in proofs, e.g. "Q3" */
+  label?: string;
+}
+
 export interface IntegrityIssue {
   type: IntegrityIssueType;
-  /** 1-based row numbers where the discrepancy occurs, e.g. [41, 42] */
+  /** 1-based row numbers where the problem occurs, e.g. [41, 42] */
   rows: [number, number];
-  /** Expected value in integer cents */
-  expectedCents: number;
-  /** Actual value reported by the statement in integer cents */
-  actualCents: number;
-  /** Difference (actualCents - expectedCents) in integer cents */
-  deltaCents: number;
-  /** Reconciliation string: "expected 1,204.10, statement says 1,104.10, gap between rows 41–42" */
+  /** One readable sentence that proves the problem, written for this issue type */
   proof: string;
-  /** Human-readable explanation of the integrity issue */
-  detail: string;
-  /** Page range when a multi-page photo jump is detected */
+  /** Balance problems only: the balance the previous row implies, in integer cents */
+  expectedCents?: number;
+  /** Balance problems only: the balance the statement reports, in integer cents */
+  actualCents?: number;
+  /** Balance problems only: actualCents - expectedCents */
+  deltaCents?: number;
+  /** Page range for missing pages */
   pages?: [number, number];
-  /** Calendar day gap for date_gap or incomplete_period */
+  /** Calendar days: the gap between rows (date_gap) or the days of the declared period not covered (incomplete_period) */
   gapDays?: number;
+  /** date_gap: the dates on both sides of the gap. incomplete_period: first and last date the statement covers. */
+  dates?: [string, string];
+  /** incomplete_period: the declared period and which end is missing */
+  declared?: DeclaredPeriod;
+  side?: 'start' | 'end';
+  /** duplicate_row: the balance both identical rows show */
+  balanceCents?: number;
 }
 
 export interface IntegrityOptions {
   /** Maximum normal gap in days between consecutive transactions before flagging date_gap (default: 14) */
   maxDateGapDays?: number;
-  /** Declared statement period { from: YYYY-MM-DD, to: YYYY-MM-DD } to check coverage */
-  declaredPeriod?: { from: string; to: string };
+  /** Declared statement period to check coverage against */
+  declaredPeriod?: DeclaredPeriod;
   /** Allowed grace days at the start/end of a declared period (default: 5) */
   periodGraceDays?: number;
   /** Optional declared opening balance in cents */
   openingBalanceCents?: number;
-  /** Optional declared closing balance in cents */
-  closingBalanceCents?: number;
 }
 
 const dayNum = (iso: string) => Math.round(Date.parse(iso + 'T00:00:00Z') / 86400000);
@@ -48,14 +58,19 @@ export const plainMoney = (cents: number): string =>
     maximumFractionDigits: 2,
   })}`;
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** The reconciliation sentence for balance problems: the only issues where a sum is the proof. */
 export const formatProof = (expectedCents: number, actualCents: number, rowA: number, rowB: number): string =>
-  `expected ${plainMoney(expectedCents)}, statement says ${plainMoney(actualCents)}, gap between rows ${rowA}–${rowB}`;
+  `expected ${plainMoney(expectedCents)}, statement says ${plainMoney(actualCents)}, ${
+    rowA === rowB ? `at row ${rowA}` : `gap between rows ${rowA}–${rowB}`
+  }`;
 
 /** Infers a declared quarterly period when the filename names a quarter (e.g. acme-q3.csv, acme-q4.csv). */
 export function inferDeclaredPeriod(
   fileName: string,
   rows: Pick<StatementRow, 'date'>[],
-): { from: string; to: string } | undefined {
+): DeclaredPeriod | undefined {
   const m = /\bq([1-4])\b/i.exec(fileName);
   if (!m || !rows.length) return undefined;
   const year = rows[0].date.slice(0, 4);
@@ -68,7 +83,7 @@ export function inferDeclaredPeriod(
     4: [`${year}-10-01`, `${year}-12-31`],
   };
   const [from, to] = ranges[q];
-  return { from, to };
+  return { from, to, label: `Q${q}` };
 }
 
 export function checkStatementIntegrity(rows: StatementRow[], opts: IntegrityOptions = {}): IntegrityIssue[] {
@@ -81,172 +96,105 @@ export function checkStatementIntegrity(rows: StatementRow[], opts: IntegrityOpt
     const expected = opts.openingBalanceCents + rows[0].amountCents;
     const actual = rows[0].balanceCents;
     if (actual !== expected) {
-      const proof = formatProof(expected, actual, 1, 1);
       issues.push({
         type: 'balance_mismatch',
         rows: [1, 1],
         expectedCents: expected,
         actualCents: actual,
         deltaCents: actual - expected,
-        proof,
-        detail: `Opening balance does not reconcile on row 1: ${proof}`,
+        proof: `opening balance does not reconcile: ${formatProof(expected, actual, 1, 1)}`,
       });
     }
   }
-
-  let runningNet = rows[0].amountCents;
 
   for (let i = 1; i < rows.length; i++) {
     const prev = rows[i - 1];
     const curr = rows[i];
     const rowA = i;
     const rowB = i + 1;
-    const prevNet = runningNet;
-    runningNet += curr.amountCents;
 
-    // 1. Exact duplicate rows from export errors (identical date, description, and amount)
-    const isExactDup =
+    // An identical line whose balance did not move is the export repeating itself. If the balance moved
+    // again, the charge really happened twice and the anomaly detector reports it as a double charge.
+    const repeatedWithoutBalanceChange =
       prev.date === curr.date &&
       prev.description.trim() === curr.description.trim() &&
-      prev.amountCents === curr.amountCents;
-
-    let handledBalanceInDup = false;
-    if (isExactDup) {
-      let expectedCents: number;
-      let actualCents: number;
-      if (prev.balanceCents !== null && curr.balanceCents !== null) {
-        if (curr.balanceCents === prev.balanceCents) {
-          // Export duplicated the line and its balance verbatim; applying rowB would have changed balance to prev + amount
-          expectedCents = prev.balanceCents + curr.amountCents;
-          actualCents = curr.balanceCents;
-          handledBalanceInDup = true;
-        } else {
-          // Export duplicated the line and applied its amount twice; without duplicate row, balance would stay at prev.balanceCents
-          expectedCents = prev.balanceCents;
-          actualCents = curr.balanceCents;
-          handledBalanceInDup = curr.balanceCents === prev.balanceCents + curr.amountCents;
-        }
-      } else {
-        expectedCents = prevNet;
-        actualCents = runningNet;
-      }
-      const proof = formatProof(expectedCents, actualCents, rowA, rowB);
+      prev.amountCents === curr.amountCents &&
+      curr.amountCents !== 0 &&
+      prev.balanceCents !== null &&
+      prev.balanceCents === curr.balanceCents;
+    if (repeatedWithoutBalanceChange) {
       issues.push({
         type: 'duplicate_row',
         rows: [rowA, rowB],
-        expectedCents,
-        actualCents,
-        deltaCents: actualCents - expectedCents,
-        proof,
-        detail: `Exact duplicate row on ${curr.date} (${proof})`,
+        balanceCents: curr.balanceCents!,
+        proof: `rows ${rowA} and ${rowB} are identical (date, description, amount, balance ${plainMoney(curr.balanceCents!)}): the balance did not move, so the export repeated the line`,
       });
     }
 
-    // 2. Running balance & multi-page photo jumps
     const pageBoundary = prev.page !== undefined && curr.page !== undefined && curr.page !== prev.page;
-    const skippedPageNumber = prev.page !== undefined && curr.page !== undefined && curr.page > prev.page + 1;
+    const skippedPages = prev.page !== undefined && curr.page !== undefined ? curr.page - prev.page - 1 : 0;
+    const jump = `${plural(skippedPages, 'page')} missing: the statement jumps from page ${prev.page} (row ${rowA}) to page ${curr.page} (row ${rowB})`;
+    let balanceChecked = false;
 
-    if (!handledBalanceInDup && prev.balanceCents !== null && curr.balanceCents !== null) {
+    if (!repeatedWithoutBalanceChange && prev.balanceCents !== null && curr.balanceCents !== null) {
+      balanceChecked = true;
       const expected = prev.balanceCents + curr.amountCents;
       const actual = curr.balanceCents;
       if (actual !== expected) {
-        const proof = formatProof(expected, actual, rowA, rowB);
-        if (pageBoundary) {
-          issues.push({
-            type: 'missing_page',
-            rows: [rowA, rowB],
-            pages: [prev.page!, curr.page!],
-            expectedCents: expected,
-            actualCents: actual,
-            deltaCents: actual - expected,
-            proof,
-            detail: `Missing page between page ${prev.page} and page ${curr.page}: ${proof}`,
-          });
-        } else {
-          issues.push({
-            type: 'balance_mismatch',
-            rows: [rowA, rowB],
-            expectedCents: expected,
-            actualCents: actual,
-            deltaCents: actual - expected,
-            proof,
-            detail: `Running balance mismatch: ${proof}`,
-          });
-        }
-      } else if (skippedPageNumber) {
-        const proof = formatProof(expected, actual, rowA, rowB);
+        issues.push({
+          type: pageBoundary ? 'missing_page' : 'balance_mismatch',
+          rows: [rowA, rowB],
+          ...(pageBoundary ? { pages: [prev.page!, curr.page!] as [number, number] } : {}),
+          expectedCents: expected,
+          actualCents: actual,
+          deltaCents: actual - expected,
+          proof: formatProof(expected, actual, rowA, rowB),
+        });
+      } else if (skippedPages > 0) {
         issues.push({
           type: 'missing_page',
           rows: [rowA, rowB],
           pages: [prev.page!, curr.page!],
-          expectedCents: expected,
-          actualCents: actual,
-          deltaCents: 0,
-          proof,
-          detail: `Page jump from page ${prev.page} to page ${curr.page}: ${proof}`,
+          proof: `${jump}, though the running balance still reconciles`,
         });
       }
-    } else if (skippedPageNumber) {
-      const proof = formatProof(prevNet, runningNet, rowA, rowB);
-      issues.push({
-        type: 'missing_page',
-        rows: [rowA, rowB],
-        pages: [prev.page!, curr.page!],
-        expectedCents: prevNet,
-        actualCents: runningNet,
-        deltaCents: curr.amountCents,
-        proof,
-        detail: `Page jump from page ${prev.page} to page ${curr.page}: ${proof}`,
-      });
+    }
+    if (!balanceChecked && skippedPages > 0) {
+      issues.push({ type: 'missing_page', rows: [rowA, rowB], pages: [prev.page!, curr.page!], proof: jump });
     }
 
-    // 3. Unusual chronological date gaps
     const gapDays = dayNum(curr.date) - dayNum(prev.date);
     if (gapDays > maxGap) {
-      const expected =
-        prev.balanceCents !== null && curr.balanceCents !== null
-          ? prev.balanceCents + curr.amountCents
-          : prevNet + curr.amountCents;
-      const actual = curr.balanceCents !== null ? curr.balanceCents : runningNet;
-      const proof = formatProof(expected, actual, rowA, rowB);
       issues.push({
         type: 'date_gap',
         rows: [rowA, rowB],
         gapDays,
-        expectedCents: expected,
-        actualCents: actual,
-        deltaCents: actual - expected,
-        proof,
-        detail: `${gapDays}-day date gap between ${prev.date} and ${curr.date} (${proof})`,
+        dates: [prev.date, curr.date],
+        proof: `no transactions for ${plural(gapDays, 'day')} between ${prev.date} (row ${rowA}) and ${curr.date} (row ${rowB})`,
       });
     }
   }
 
-  // 4. Period coverage check against declaredPeriod
-  if (opts.declaredPeriod) {
+  const declared = opts.declaredPeriod;
+  if (declared) {
     const sortedDates = rows.map((r) => r.date).sort();
     const firstDate = sortedDates[0];
     const lastDate = sortedDates[sortedDates.length - 1];
-    const startGap = dayNum(firstDate) - dayNum(opts.declaredPeriod.from);
-    const endGap = dayNum(opts.declaredPeriod.to) - dayNum(lastDate);
+    const startGap = dayNum(firstDate) - dayNum(declared.from);
+    const endGap = dayNum(declared.to) - dayNum(lastDate);
 
     if (startGap > grace || endGap > grace) {
-      const atEnd = endGap >= startGap;
-      const rowNum = atEnd ? rows.length : 1;
-      const gapDays = atEnd ? endGap : startGap;
-      const lastBal = rows[rows.length - 1].balanceCents;
-      const actual = lastBal !== null ? lastBal : runningNet;
-      const expected = opts.closingBalanceCents !== undefined ? opts.closingBalanceCents : actual;
-      const proof = formatProof(expected, actual, rowNum, rowNum);
+      const side = endGap >= startGap ? 'end' : 'start';
+      const rowNum = side === 'end' ? rows.length : 1;
+      const gapDays = side === 'end' ? endGap : startGap;
       issues.push({
         type: 'incomplete_period',
         rows: [rowNum, rowNum],
         gapDays,
-        expectedCents: expected,
-        actualCents: actual,
-        deltaCents: actual - expected,
-        proof,
-        detail: `Statement covers ${firstDate} to ${lastDate}, missing ${gapDays} days of declared period ${opts.declaredPeriod.from} to ${opts.declaredPeriod.to} (${proof})`,
+        dates: [firstDate, lastDate],
+        declared,
+        side,
+        proof: `statement covers ${firstDate} to ${lastDate}, declared ${declared.label ?? 'period'} is ${declared.from} to ${declared.to}: ${plural(gapDays, 'day')} missing at the ${side}`,
       });
     }
   }

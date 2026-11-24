@@ -145,7 +145,7 @@
           15,
           16
         ],
-        "proof": "expected 30,090.51, statement says 30,260.28, gap between rows 15–16"
+        "proof": "rows 15 and 16 are identical (date, description, amount, balance 30,260.28): the balance did not move, so the export repeated the line"
       }
     ],
     "dateGaps": [
@@ -154,13 +154,15 @@
           23,
           24
         ],
-        "gapDays": 21
+        "gapDays": 21,
+        "proof": "no transactions for 21 days between 2025-07-15 (row 23) and 2025-08-05 (row 24)"
       }
     ],
     "incompletePeriod": {
       "declaredFrom": "2025-07-01",
       "declaredTo": "2025-09-30",
-      "actualTo": "2025-09-12"
+      "actualTo": "2025-09-12",
+      "proof": "statement covers 2025-07-02 to 2025-09-12, declared Q3 is 2025-07-01 to 2025-09-30: 18 days missing at the end"
     }
   }
 }

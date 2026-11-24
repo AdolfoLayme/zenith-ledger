@@ -23,7 +23,8 @@ const schema = Schema.object({
 
 const SYSTEM = `You are a careful bookkeeping reviewer. You receive an anonymized summary: vendors are aliases like Vendor_A,
 amounts are integer cents, and "signals" were computed by deterministic code. Explain each signal, rank what matters,
-write questions an accountant should ask, and a short narrative. Refer to vendors only by their alias. Do not invent amounts.
+write questions an accountant should ask, and a short narrative. A duplicate signal marked exportDuplicate is a statement export
+repeating a line (the running balance did not move): present it as low severity and never as a double charge. Refer to vendors only by their alias. Do not invent amounts.
 Never write "cents" in your answer: show every amount in US dollars by moving the decimal point two places
 (2743738 cents -> $27,437.38).`;
 

@@ -3,7 +3,7 @@ import { DEFAULT_THRESHOLDS, type Thresholds } from './thresholds';
 export interface Txn { id: number; date: string; amountCents: number; vendor: string; category: string }
 
 export type Signal =
-  | { type: 'duplicate'; vendor: string; amountCents: number; dates: [string, string] }
+  | { type: 'duplicate'; vendor: string; amountCents: number; dates: [string, string]; exportDuplicate?: true }
   | { type: 'price_increase'; vendor: string; fromCents: number; toCents: number; date: string }
   | { type: 'outlier'; vendor: string; category: string; amountCents: number; date: string; zScore: number }
   | { type: 'round_transfer'; vendor: string; amountCents: number; date: string }

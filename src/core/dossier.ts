@@ -92,16 +92,24 @@ function buildSignalDossier(s: Signal, a: LocalAnalysis, limits: Thresholds): Ev
         .map(toSourceRow);
       const interval = Math.abs(dayNum(s.dates[1]) - dayNum(s.dates[0]));
       const lines = matched.map((r) => r.line).join(' and ');
+      const within = interval === 0 ? 'on the same day' : `within ${interval} day${interval === 1 ? '' : 's'}`;
+      const balances = matched.map((r) => r.balanceCents);
+      const balanceTrail = balances.length === 2 && balances.every((b) => b !== null)
+        ? `${plainMoney(balances[0]!)} → ${plainMoney(balances[1]!)} (${balances[0] === balances[1] ? 'did not move' : 'moved'})`
+        : null;
+      const proof = s.exportDuplicate
+        ? `Likely an export duplicate, not a double charge: the running balance did not move between lines ${lines}`
+        : `${s.vendor} charged ${usd(s.amountCents)} twice ${within} (lines ${lines || 'n/a'})`;
       return {
         id: `anomaly:duplicate:${s.vendor}:${s.amountCents}:${s.dates[0]}:${s.dates[1]}`,
         kind: 'anomaly',
         type: 'duplicate',
-        severity: 'high',
+        severity: s.exportDuplicate ? 'low' : 'high',
         vendorAlias: s.vendor,
         category: matched[0]?.category ?? 'Other',
-        title: `Possible duplicate · ${s.vendor}`,
-        summary: `${usd(s.amountCents)} on ${s.dates[0]} and ${s.dates[1]}`,
-        proof: `${s.vendor} charged ${usd(s.amountCents)} twice within ${interval} day(s) (lines ${lines || 'n/a'})`,
+        title: `${s.exportDuplicate ? 'Likely export duplicate' : 'Possible duplicate'} · ${s.vendor}`,
+        summary: `${usd(s.amountCents)} on ${s.dates[0]}${s.dates[0] === s.dates[1] ? ' (listed twice)' : ` and ${s.dates[1]}`}`,
+        proof,
         sourceRows: matched,
         rule: {
           id: 'duplicate',
@@ -111,7 +119,8 @@ function buildSignalDossier(s: Signal, a: LocalAnalysis, limits: Thresholds): Ev
         },
         computed: [
           { label: 'Repeated amount', value: usd(s.amountCents) },
-          { label: 'Interval', value: `${interval} day(s)` },
+          { label: 'Interval', value: interval === 0 ? 'Same day' : `${interval} day${interval === 1 ? '' : 's'}` },
+          ...(balanceTrail ? [{ label: 'Running balance', value: balanceTrail }] : []),
           { label: 'Source lines', value: lines || 'n/a' },
         ],
       };
@@ -262,7 +271,7 @@ const INTEGRITY_LABELS: Record<IntegrityIssue['type'], { title: string; ruleName
   duplicate_row: {
     title: 'Exact duplicate row (export error)',
     ruleName: 'Export duplicate row check',
-    thresholdSummary: 'identical (date, description, amountCents) on consecutive lines',
+    thresholdSummary: 'identical (date, description, amount, balance) on consecutive lines',
   },
   date_gap: {
     title: 'Unusual date gap',
@@ -276,19 +285,52 @@ const INTEGRITY_LABELS: Record<IntegrityIssue['type'], { title: string; ruleName
   },
 };
 
+const isoRange = (a: string, b: string) => `${a} to ${b}`;
+
+function integrityMetrics(issue: IntegrityIssue, sourceRows: SourceRowEvidence[]): ComputedMetric[] {
+  const [rowA, rowB] = issue.rows;
+  switch (issue.type) {
+    case 'balance_mismatch':
+    case 'missing_page':
+      return [
+        ...(issue.expectedCents !== undefined && issue.actualCents !== undefined && issue.deltaCents !== undefined
+          ? [
+              { label: 'Expected', value: plainMoney(issue.expectedCents) },
+              { label: 'Statement says', value: plainMoney(issue.actualCents) },
+              { label: 'Discrepancy', value: usd(issue.deltaCents) },
+            ]
+          : []),
+        { label: 'Row span', value: `rows ${rowA}–${rowB}` },
+        ...(issue.pages ? [{ label: 'Pages', value: `page ${issue.pages[0]} → page ${issue.pages[1]}` }] : []),
+      ];
+    case 'duplicate_row':
+      return [
+        { label: 'Repeated amount', value: usd(sourceRows[0]?.amountCents ?? 0) },
+        { label: 'Balance on both rows', value: plainMoney(issue.balanceCents ?? 0) },
+        { label: 'Balance movement', value: '0.00 (did not move)' },
+        { label: 'Rows', value: `${rowA} and ${rowB}` },
+      ];
+    case 'date_gap':
+      return [
+        { label: 'Gap length', value: `${issue.gapDays} days` },
+        { label: 'Last date before the gap', value: `${issue.dates![0]} (row ${rowA})` },
+        { label: 'First date after the gap', value: `${issue.dates![1]} (row ${rowB})` },
+      ];
+    case 'incomplete_period':
+      return [
+        { label: 'Statement covers', value: isoRange(...issue.dates!) },
+        { label: `Declared ${issue.declared!.label ?? 'period'}`, value: isoRange(issue.declared!.from, issue.declared!.to) },
+        { label: 'Missing', value: `${issue.gapDays} days at the ${issue.side}` },
+      ];
+  }
+}
+
 function buildIntegrityDossier(issue: IntegrityIssue, a: LocalAnalysis): EvidenceDossier {
   const indices = [...new Set([issue.rows[0] - 1, issue.rows[1] - 1])].filter((idx) => idx >= 0 && idx < a.rows.length);
   const sourceRows = indices.map((idx) => toSourceRow(a.rows[idx]));
   const meta = INTEGRITY_LABELS[issue.type];
   const primaryRow = sourceRows[sourceRows.length - 1] ?? sourceRows[0];
-  const computed: ComputedMetric[] = [
-    { label: 'Expected', value: plainMoney(issue.expectedCents) },
-    { label: 'Statement says', value: plainMoney(issue.actualCents) },
-    { label: 'Discrepancy', value: usd(issue.deltaCents) },
-    { label: 'Row span', value: `rows ${issue.rows[0]}–${issue.rows[1]}` },
-  ];
-  if (issue.pages) computed.push({ label: 'Pages', value: `page ${issue.pages[0]} → page ${issue.pages[1]}` });
-  if (issue.gapDays !== undefined) computed.push({ label: 'Gap length', value: `${issue.gapDays} days` });
+  const where = issue.rows[0] === issue.rows[1] ? `row ${issue.rows[0]}` : `rows ${issue.rows[0]}–${issue.rows[1]}`;
 
   return {
     id: `integrity:${issue.type}:${issue.rows[0]}-${issue.rows[1]}`,
@@ -297,7 +339,7 @@ function buildIntegrityDossier(issue: IntegrityIssue, a: LocalAnalysis): Evidenc
     severity: issue.type === 'balance_mismatch' || issue.type === 'missing_page' ? 'high' : 'medium',
     vendorAlias: primaryRow?.vendorAlias ?? 'Statement',
     category: primaryRow?.category ?? 'Integrity',
-    title: `${meta.title} · rows ${issue.rows[0]}–${issue.rows[1]}`,
+    title: `${meta.title} · ${where}`,
     summary: issue.proof,
     proof: issue.proof,
     sourceRows,
@@ -307,7 +349,7 @@ function buildIntegrityDossier(issue: IntegrityIssue, a: LocalAnalysis): Evidenc
       thresholdSummary: meta.thresholdSummary,
       thresholds: issue.gapDays !== undefined ? { maxGapDays: issue.type === 'date_gap' ? 14 : 5 } : { toleranceCents: 0 },
     },
-    computed,
+    computed: integrityMetrics(issue, sourceRows),
   };
 }
 

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { rowsFromReview } from '../ai/photo';
 import { clearLocalData, getDecision, listDecisions, listDossiers, saveDecision, saveDossiers } from '../store/receipts';
 import { parseStatement } from './csv';
+import type { StatementRow } from './types';
 import { buildDossiers } from './dossier';
 import { analyzeLocally } from './pipeline';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './thresholds';
@@ -125,5 +126,79 @@ describe('buildDossiers', () => {
     await clearLocalData();
     expect(await listDecisions()).toEqual([]);
     expect(await listDossiers()).toEqual([]);
+  });
+
+  const stmt = (date: string, description: string, amountCents: number, balanceCents: number | null): StatementRow => ({
+    date,
+    description,
+    amountCents,
+    currency: 'USD',
+    balanceCents,
+  });
+
+  it('proves each integrity alert with its own readable evidence instead of a sum that does not apply', () => {
+    const rows = parseStatement(readFileSync('public/samples/acme-q3-gaps.csv', 'utf8'));
+    const dossiers = buildDossiers(analyzeLocally(rows, { fileName: 'acme-q3-gaps.csv' }));
+    const byType = (t: string) => dossiers.find((d) => d.kind === 'integrity' && d.type === t)!;
+
+    expect(byType('date_gap').proof).toMatch(/^no transactions for \d+ days between 2025-07-15 \(row 23\) and 2025-08-05 \(row 24\)$/);
+    expect(byType('date_gap').computed.map((m) => m.label)).toEqual(['Gap length', 'Last date before the gap', 'First date after the gap']);
+
+    const period = byType('incomplete_period');
+    expect(period.title).toBe('Incomplete statement period · row 84');
+    expect(period.proof).toBe(
+      'statement covers 2025-07-02 to 2025-09-12, declared Q3 is 2025-07-01 to 2025-09-30: 18 days missing at the end',
+    );
+    expect(period.computed.map((m) => m.label)).toEqual(['Statement covers', 'Declared Q3', 'Missing']);
+
+    const dup = byType('duplicate_row');
+    expect(dup.proof).toBe(
+      'rows 15 and 16 are identical (date, description, amount, balance 30,260.28): the balance did not move, so the export repeated the line',
+    );
+    expect(dup.computed.find((m) => m.label === 'Balance movement')!.value).toContain('did not move');
+
+    for (const d of [byType('date_gap'), period, dup]) {
+      expect(d.proof).not.toContain('statement says');
+      expect(d.computed.map((m) => m.label)).not.toContain('Statement says');
+    }
+    expect(byType('balance_mismatch').proof).toContain('expected 27,202.21, statement says 27,102.21');
+  });
+
+  it('downgrades a duplicate charge that integrity proved to be an export repeat', () => {
+    const rows = parseStatement(readFileSync('public/samples/acme-q3-gaps.csv', 'utf8'));
+    const analysis = analyzeLocally(rows, { fileName: 'acme-q3-gaps.csv' });
+    const dossiers = buildDossiers(analysis);
+
+    const exportDup = dossiers.find((d) => d.kind === 'anomaly' && d.type === 'duplicate' && d.sourceRows[0].line === 15)!;
+    expect(exportDup.sourceRows.map((r) => r.line)).toEqual([15, 16]);
+    expect(exportDup.severity).toBe('low');
+    expect(exportDup.title).toMatch(/^Likely export duplicate · /);
+    expect(exportDup.proof).toContain('Likely an export duplicate, not a double charge: the running balance did not move');
+    expect(exportDup.proof).not.toMatch(/charged .* twice/);
+    expect(analysis.signals.find((s) => s.type === 'duplicate' && s.exportDuplicate)).toBeDefined();
+
+    // other duplicates in the same statement are untouched
+    const others = dossiers.filter((d) => d.kind === 'anomaly' && d.type === 'duplicate' && d !== exportDup);
+    expect(others.length).toBeGreaterThan(0);
+    for (const d of others) {
+      expect(d.severity).toBe('high');
+      expect(d.proof).toContain('twice');
+    }
+  });
+
+  it('keeps a real double charge as a high severity alert when the balance moved both times', () => {
+    const rows = [
+      stmt('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 120410),
+      stmt('2025-08-10', 'POS DEBIT DELTA OFFICE DEPOT order 77120', -18420, 101990),
+      stmt('2025-08-12', 'CITY POWER & WATER utility bill', -20000, 81990),
+    ];
+    const analysis = analyzeLocally(rows);
+    expect(analysis.integrity).toEqual([]);
+    const dup = buildDossiers(analysis).find((d) => d.type === 'duplicate')!;
+    expect(dup.severity).toBe('high');
+    expect(dup.title).toMatch(/^Possible duplicate · /);
+    expect(dup.proof).toContain('charged -$184.20 twice on the same day (lines 1 and 2)');
+    expect(dup.computed.find((m) => m.label === 'Interval')!.value).toBe('Same day');
+    expect(dup.computed.find((m) => m.label === 'Running balance')!.value).toContain('moved');
   });
 });

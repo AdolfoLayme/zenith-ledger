@@ -523,7 +523,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
             </>
           ) : (
             <>
-              <h1>Audit your books with AI,<br />without your bank data leaving your laptop.</h1>
+              <h1>Audit your books with AI,<br />without your bank data leaving your device.</h1>
               <p className="lead">Drop a bank statement. Names, cards, emails and account numbers are found and replaced on this device. You see exactly what would be sent, and nothing leaves until you approve it.</p>
             </>
           )}

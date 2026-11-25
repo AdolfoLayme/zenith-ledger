@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Zenith Ledger — Audit with Zenith",
   "version": "0.1.0",
-  "description": "Audit bank tables and CSV statements with hybrid on-device and cloud AI without raw data leaving your laptop.",
+  "description": "Audit bank tables and CSV statements with hybrid on-device and cloud AI without raw data leaving your device.",
   "permissions": ["sidePanel", "activeTab", "scripting", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {

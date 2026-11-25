@@ -14,7 +14,7 @@ function recordRequests(page: Page) {
 
 async function start(page: Page, nano: boolean) {
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Audit your books');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('without your bank data leaving your device');
   if (nano) {
     await page.getByRole('button', { name: 'Enable on-device AI' }).click();
     await expect(page.getByText('Active', { exact: true })).toBeVisible();

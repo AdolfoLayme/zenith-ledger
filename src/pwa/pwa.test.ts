@@ -71,6 +71,12 @@ describe('PWA manifest, proprietary icons, service worker, and mobile detection'
     expect(html).toContain('href="/manifest.webmanifest"');
     expect(html).toContain('href="/icons/apple-touch-icon.png"');
     expect(html).toContain('apple-mobile-web-app-capable');
+    expect(html).toContain('leaving your device');
+    expect(html).not.toContain('leaving your laptop');
+
+    const appUi = readFileSync('src/ui/App.tsx', 'utf8');
+    expect(appUi).toContain('without your bank data leaving your device.');
+    expect(appUi).not.toContain('leaving your laptop');
   });
 
   it('ships a hand-written service worker that caches the app shell for offline local analysis', () => {

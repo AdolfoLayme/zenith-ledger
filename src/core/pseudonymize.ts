@@ -68,6 +68,6 @@ export function redact(text: string, spans: Span[], aliaser: Aliaser): string {
 }
 
 export function reidentify(text: string, map: Map<string, string>): string {
-  // models sometimes pluralize an alias ("Vendors_C"): read it as the alias it stands for
-  return text.replace(/\b(Vendor|Person|Card|IBAN|Account|Email|Phone|SSN|EIN|Link)s?_([A-Z]+|\d+)\b/g, (a, kind: string, id: string) => map.get(`${kind}_${id}`) ?? a);
+  // models sometimes pluralize an alias ("Vendors_C") or replace the underscore with a space ("Vendor C")
+  return text.replace(/\b(Vendor|Person|Card|IBAN|Account|Email|Phone|SSN|EIN|Link)s?[_ ]([A-Z]+|\d+)\b/g, (a, kind: string, id: string) => map.get(`${kind}_${id}`) ?? a);
 }

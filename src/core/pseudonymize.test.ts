@@ -41,4 +41,9 @@ describe('reidentify with a pluralized alias', () => {
     expect(reidentify('Spend at Vendors_C and Vendor_C, paid by Person_1, not Vendors_Z.', map))
       .toBe('Spend at CORNER BISTRO and CORNER BISTRO, paid by Ana Ruiz, not Vendors_Z.');
   });
+  it('restores aliases when the model replaces the underscore with a space ("Vendor C")', () => {
+    const map = new Map([['Vendor_C', 'DELTA OFFICE DEPOT'], ['Vendor_M', 'BRIGHTLINE PLUMBING LLC'], ['Person_1', 'Ana Ruiz']]);
+    expect(reidentify('Large outlier with Vendor M and duplicate for Vendor C, reviewed by Person 1, not Vendor Z.', map))
+      .toBe('Large outlier with BRIGHTLINE PLUMBING LLC and duplicate for DELTA OFFICE DEPOT, reviewed by Ana Ruiz, not Vendor Z.');
+  });
 });

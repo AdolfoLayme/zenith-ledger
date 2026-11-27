@@ -15,6 +15,14 @@ Zenith Ledger turns a raw statement (CSV, statement/receipt photo, or an open on
 5. **Mobile-First No-Account Accountant View & Local Re-identification:** your accountant opens the link on their phone or desktop (`?pack=<packId>`) without creating an account, sees only aliases, amounts, and computed evidence in a mobile-first layout, can ask **Gemini in the cloud (`ONLY_IN_CLOUD`)** for a draft accounting reply (which also sees only aliases), and submits their response. Your browser fetches the response and restores the real names locally from IndexedDB. **Real names never travel.**
 6. **On-Device Accountant Export:** export the full case (alerts, computed evidence, origin rows, user decisions, and accountant replies) as CSV or JSON generated entirely on your device.
 
+## Screenshots
+
+| Local analysis on the device | Privacy Firewall before any send |
+|---|---|
+| ![Local analysis](docs/screenshots/01-local-analysis.jpg) | ![Privacy Firewall](docs/screenshots/03-privacy-firewall.jpg) |
+| **Accountant view on a phone, aliases only** | **Reply with real names restored locally** |
+| ![Accountant view](docs/screenshots/07-mobile-accountant.jpg) | ![Re-identified reply](docs/screenshots/08-reidentified-reply.jpg) |
+
 ## Architecture: What Runs On-Device, In the Cloud, and In Firestore
 
 ```mermaid
@@ -107,11 +115,11 @@ Other commands:
 
 ## Try the Chrome Extension ("Audit with Zenith")
 
-1. Build the extension into `extension/dist/`:
+1. Download `zenith-ledger-chrome-extension.zip` from the [v1.0.0 release](https://github.com/AdolfoLayme/zenith-ledger/releases/tag/v1.0.0) and unzip it, or build it yourself into `extension/dist/`:
    ```
    pnpm build:ext
    ```
-2. Open `chrome://extensions` in desktop Chrome, enable **Developer mode**, click **Load unpacked**, and choose `extension/dist`.
+2. Open `chrome://extensions` in desktop Chrome, enable **Developer mode**, click **Load unpacked**, and choose the unzipped folder (or `extension/dist`).
 3. Open a page containing a transaction table or ARIA grid — for example https://zenith-ledger-app.web.app/samples/bank-statement.html or https://zenith-ledger-app.web.app/samples/bank-aria-grid.html.
 4. Click the **Zenith Ledger — Audit with Zenith** toolbar button to open the side panel, then click **Audit table on this page** (or drop a CSV statement directly into the side panel).
 

@@ -2,6 +2,8 @@
 
 **The accountant gets the proof, not your statement.**
 
+**Demo video (2:51):** https://youtu.be/ZDFwyTJwOhk
+
 **Live demo:** https://zenith-ledger-app.web.app (desktop Chrome for Gemini Nano; any browser runs strict mode and the Accountant View)
 
 When a small business or freelancer spots a questionable charge or a balance gap in a bank export, the usual options are either sending the entire raw bank statement (with every card number, client name, IBAN, and unrelated transaction) to an accountant or a cloud LLM, or doing manual spreadsheet reconciliation.

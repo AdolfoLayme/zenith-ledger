@@ -2,7 +2,7 @@
 
 **The accountant gets the proof, not your statement.**
 
-**Demo video (2:51):** https://youtu.be/ZDFwyTJwOhk
+**Demo video (2:58):** https://youtu.be/ECBUN6ZyjyQ
 
 **Live demo:** https://zenith-ledger-app.web.app (desktop Chrome for Gemini Nano; any browser runs strict mode and the Accountant View)
 

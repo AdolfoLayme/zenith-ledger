@@ -47,7 +47,30 @@ export function toIsoDate(raw: string): string {
   throw new Error(`Bad date: "${raw}"`);
 }
 
+/** OFX/QFX bank export (SGML or XML): one row per <STMTTRN>. OFX has no per-row balance, so balances stay empty. */
+export function parseOfx(text: string): StatementRow[] {
+  const field = (block: string, tag: string) => new RegExp(`<${tag}>([^<\\r\\n]*)`, 'i').exec(block)?.[1].trim() ?? '';
+  const currency = /<CURDEF>([A-Z]{3})/i.exec(text)?.[1].toUpperCase() ?? 'USD';
+  const blocks = text.split(/<STMTTRN>/i).slice(1).map((b) => b.split(/<\/STMTTRN>/i)[0]);
+  const rows = blocks.map((b) => {
+    const posted = field(b, 'DTPOSTED');
+    if (!/^\d{8}/.test(posted)) throw new Error(`Bad OFX date: "${posted}"`);
+    const name = field(b, 'NAME');
+    const memo = field(b, 'MEMO');
+    return {
+      date: `${posted.slice(0, 4)}-${posted.slice(4, 6)}-${posted.slice(6, 8)}`,
+      description: [name, memo && memo !== name ? memo : ''].filter(Boolean).join(' ') || field(b, 'TRNTYPE'),
+      amountCents: toCents(field(b, 'TRNAMT')),
+      currency,
+      balanceCents: null,
+    };
+  });
+  if (!rows.length) throw new Error('No transactions (<STMTTRN>) found in this OFX file');
+  return rows.map((r, i) => ({ r, i })).sort((a, b) => a.r.date.localeCompare(b.r.date) || a.i - b.i).map(({ r }) => r);
+}
+
 export function parseStatement(text: string): StatementRow[] {
+  if (/<OFX>|<STMTTRN>/i.test(text)) return parseOfx(text);
   const [head, ...body] = parseCsv(text);
   const cols = (head ?? []).map((h) => h.trim().toLowerCase());
   const idx = (n: string) => cols.indexOf(n);

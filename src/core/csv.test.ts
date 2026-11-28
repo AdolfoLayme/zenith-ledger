@@ -31,3 +31,28 @@ describe('parseStatement', () => {
     expect(() => parseStatement('foo,bar\n1,2\n')).toThrow(/columns/i);
   });
 });
+
+describe('OFX / QFX import', () => {
+  const sgml = `OFXHEADER:100
+DATA:OFXSGML
+
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>USD
+<BANKTRANLIST><DTSTART>20250801
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20250811120000<TRNAMT>-184.20<FITID>2<NAME>DELTA OFFICE DEPOT<MEMO>order 77120</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20250810<TRNAMT>-184.20<FITID>1<NAME>DELTA OFFICE DEPOT<MEMO>order 77120</STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20250812<TRNAMT>2131.39<FITID>3<NAME>Redwood Bakery</STMTTRN>
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
+  it('reads SGML transactions in date order, in integer cents', () => {
+    const rows = parseStatement(sgml);
+    expect(rows.map((r) => [r.date, r.description, r.amountCents])).toEqual([
+      ['2025-08-10', 'DELTA OFFICE DEPOT order 77120', -18420],
+      ['2025-08-11', 'DELTA OFFICE DEPOT order 77120', -18420],
+      ['2025-08-12', 'Redwood Bakery', 213139],
+    ]);
+    expect(rows.every((r) => r.balanceCents === null && r.currency === 'USD')).toBe(true);
+  });
+  it('reads XML-style OFX with closing tags', () => {
+    const xml = '<OFX><CURDEF>EUR</CURDEF><STMTTRN><DTPOSTED>20250901</DTPOSTED><TRNAMT>-49.00</TRNAMT><NAME>CLOUDNEST HOSTING</NAME></STMTTRN></OFX>';
+    expect(parseStatement(xml)).toEqual([{ date: '2025-09-01', description: 'CLOUDNEST HOSTING', amountCents: -4900, currency: 'EUR', balanceCents: null }]);
+  });
+});

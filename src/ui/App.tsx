@@ -542,7 +542,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
           <div className={`drop ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
             onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files[0]); }}>
             <p className="droptitle">{extension ? 'Or drop a CSV statement here' : 'Drop a CSV statement, or a photo of a statement or receipt'}</p>
-            <p>CSV columns: date, description, amount. {!extension && 'Photos (JPEG or PNG) are read by the on-device model only.'}</p>
+            <p>CSV columns: date, description, amount. OFX and QFX bank exports work too. {!extension && 'Photos (JPEG or PNG) are read by the on-device model only.'}</p>
             {pending ? (
               <div className="choose" role="group" aria-label="Photo type">
                 <p><b>What is in {pending.name}?</b> The on-device model reads each kind differently.</p>
@@ -554,7 +554,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
               </div>
             ) : <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={busy}>{busy ? 'Reading…' : 'Choose a file'}</button>}
             {reading && <p className="muted" role="status">{reading}</p>}
-            <input ref={fileRef} type="file" accept={['.csv', 'text/csv', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" accept={['.csv', 'text/csv', '.ofx', '.qfx', ...PHOTO_TYPES].join(',')} hidden data-testid="file" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
             {!extension && (
               <div className="samples">
                 <span className="muted">Or try synthetic samples:</span>
@@ -716,7 +716,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                 <input
                   ref={priorFileRef}
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,text/csv,.ofx,.qfx"
                   hidden
                   data-testid="prior-file"
                   onChange={(e) => { onPriorFile(e.target.files?.[0]); e.target.value = ''; }}

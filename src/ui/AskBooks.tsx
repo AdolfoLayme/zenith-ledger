@@ -43,7 +43,7 @@ export function AskBooks({ analysis, onDevice, nanoReady }: { analysis: LocalAna
       </div>
       <p className="muted" style={{ margin: '6px 0 12px' }}>Ask in plain English. The question can contain real names because it never leaves this device: {nanoReady ? 'Gemini Nano turns it into a query' : 'a keyword parser turns it into a query (Gemini Nano is not available here)'}, and code finds the rows and adds the amounts.</p>
       <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(question); }}>
-        <input className="ask-input" aria-label="Question about this statement" placeholder="How much did we spend on Software in August?" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={200} />
+        <input className="ask-input" spellCheck={false} aria-label="Question about this statement" placeholder="How much did we spend on Software in August?" value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={200} />
         <button className="btn primary" disabled={busy || !question.trim()}>{busy ? 'Reading…' : 'Ask'}</button>
       </form>
       <div className="row mt-s">

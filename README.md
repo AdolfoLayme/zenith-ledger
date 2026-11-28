@@ -16,6 +16,8 @@ Zenith Ledger turns a raw statement (CSV, statement/receipt photo, or an open on
 4. **Accountant Review Pack:** mark only the alerts you want your accountant to inspect as `Ask my accountant`. Zenith packages **only those origin rows**, pseudonymized with consistent aliases (`Vendor_A`, `Person_1`), plus the computed proof and your question. You inspect the exact JSON and its SHA-256 in the **Privacy Firewall**, then share an **expiring capability link** backed by **Cloud Firestore** security rules.
 5. **Mobile-First No-Account Accountant View & Local Re-identification:** your accountant opens the link on their phone or desktop (`?pack=<packId>`) without creating an account, sees only aliases, amounts, and computed evidence in a mobile-first layout, can ask **Gemini in the cloud (`ONLY_IN_CLOUD`)** for a draft accounting reply (which also sees only aliases), and submits their response. Your browser fetches the response and restores the real names locally from IndexedDB. **Real names never travel.**
 6. **On-Device Accountant Export:** export the full case (alerts, computed evidence, origin rows, user decisions, and accountant replies) as CSV or JSON generated entirely on your device.
+7. **Ask your books, on device:** plain-English questions ("How much did we spend on Software in August?") are turned into a structured query by Gemini Nano (`ONLY_ON_DEVICE`); a deterministic check keeps only the filters the question mentions, and code finds the rows and adds the amounts. The question can contain real names because it never leaves the device.
+8. **Hybrid AI activity:** a corner pill lists every model call with its Firebase AI Logic mode, latency, and the bytes that left the device (always 0 B on device).
 
 ## Screenshots
 

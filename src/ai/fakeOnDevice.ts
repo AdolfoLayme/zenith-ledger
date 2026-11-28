@@ -1,3 +1,5 @@
+import { parseQuestionLocally } from '../core/ask';
+import { CATEGORIES } from '../core/categories';
 import { detectPii } from '../core/detectors';
 import { guessMerchant } from '../core/pipeline';
 import { readPngText } from '../core/pngText';
@@ -24,6 +26,9 @@ export const fakeOnDevice: OnDevice = {
     const [period, money, , flagged = ''] = overview.split('\n');
     const items = flagged.replace(/^Flagged: |\.$/g, '').split('; ');
     return `On-device summary (scripted): ${period} ${money} ${items.length} item(s) flagged, starting with ${items[0]}.`;
+  },
+  async parseQuestion(question, months) {
+    return parseQuestionLocally(question, CATEGORIES, months);
   },
   async readImage(image, kind) {
     // The bundled synthetic photos carry their answers in PNG text chunks; there is no OCR here.

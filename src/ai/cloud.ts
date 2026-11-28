@@ -1,6 +1,7 @@
 import { getGenerativeModel, InferenceMode, Schema } from 'firebase/ai';
 import { getFirebase } from './firebase';
 import type { CloudAuditor, CloudReport } from './types';
+import { traced } from './trace';
 
 // The cloud is an explicit choice (ONLY_IN_CLOUD), used only after the user approves
 // the payload in the Privacy Firewall. It never sees raw descriptions.
@@ -44,7 +45,7 @@ export function createCloudAuditor(): CloudAuditor {
       // the same approved payload is resent only on "high demand" (500/503); nothing else changes between tries
       for (let attempt = 1; ; attempt++) {
         try {
-          const res = await model.generateContent(approvedPayloadJson);
+          const res = await traced('cloud', 'Audit report', new Blob([approvedPayloadJson]).size, () => model.generateContent(approvedPayloadJson));
           return JSON.parse(res.response.text()) as CloudReport;
         } catch (err) {
           if (attempt >= 3 || !/\[(500|503)\b/.test(String(err))) throw err;
@@ -64,7 +65,7 @@ export function createCloudAuditor(): CloudAuditor {
             'recommended ledger treatment or supporting document required.',
         },
       });
-      const res = await model.generateContent(packItemJson);
+      const res = await traced('cloud', 'Accountant draft reply', new Blob([packItemJson]).size, () => model.generateContent(packItemJson));
       return res.response.text().trim();
     },
   };

@@ -17,6 +17,8 @@ import { isMobileDevice, MOBILE_NO_NANO_NOTICE } from '../pwa/pwa';
 import { openReceiptVault } from '../vault/firestore';
 import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
+import { AskBooks } from './AskBooks';
+import { HybridTrace } from './HybridTrace';
 
 type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts' | 'accountant';
 type ReviewRow = { date: string; description: string; amount: string };
@@ -503,6 +505,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
         </header>
       )}
 
+      <HybridTrace />
       {error && <div className="note warn" role="alert" style={{ marginBottom: 16 }}>{error}</div>}
 
       {screen === 'upload' && (
@@ -649,6 +652,8 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
           </div>
           {analysis.mode === 'strict' && nanoNote && <div className="note mt" role="status">{nanoNote}</div>}
           {analysis.mode === 'strict' && <div className="note mt">Strict mode: person names inside free text are not detected without the on-device model, so free-text descriptions are never included in what is sent.</div>}
+
+          <AskBooks analysis={analysis} onDevice={ai.onDevice} nanoReady={nano === 'ready'} />
 
           <div className="card mt" data-testid="integrity-check">
             <div className="row" style={{ justifyContent: 'space-between' }}>

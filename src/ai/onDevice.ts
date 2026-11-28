@@ -1,7 +1,11 @@
 import { getGenerativeModel, InferenceMode, InferenceSource, type LanguageModelPromptOptions, type Part } from 'firebase/ai';
+import { CATEGORIES } from '../core/categories';
 import type { RowEntities } from '../core/types';
 import { getFirebase } from './firebase';
+import { traced } from './trace';
 import { chunk, type OnDevice } from './types';
+
+const TASKS: Record<string, string> = { entities: 'Find names and merchants', plain: 'Offline summary', statement: 'Read statement photo', receipt: 'Read receipt photo', ask: 'Ask your books' };
 
 // SECURITY: raw bank descriptions and statement photos only ever go through InferenceMode.ONLY_ON_DEVICE.
 // Never switch this to PREFER_ON_DEVICE: if Gemini Nano is missing, that mode silently
@@ -10,9 +14,19 @@ import { chunk, type OnDevice } from './types';
 // API per https://firebase.google.com/docs/ai-logic/hybrid/web/configuration-options
 // and https://firebase.google.com/docs/ai-logic/hybrid/web/generate-structured-output (checked 2026-11-11).
 
-const CATEGORIES = ['Revenue', 'Supplies', 'Meals', 'Software', 'Insurance', 'Payroll', 'Utilities', 'Travel', 'Transfers', 'Other'];
 
 // Plain JSON schemas passed to Chrome's Prompt API as responseConstraint (structured output on device).
+const QUERY_SCHEMA = {
+  type: 'object',
+  properties: {
+    metric: { type: 'string', enum: ['sum', 'count', 'largest', 'list'] },
+    flow: { type: 'string', enum: ['out', 'in', 'any'] },
+    category: { type: 'string', enum: [...CATEGORIES, ''] },
+    vendor: { type: 'string' },
+    month: { type: 'string' },
+  },
+  required: ['metric', 'flow'],
+};
 const ENTITIES_SCHEMA = {
   type: 'array',
   items: {
@@ -104,7 +118,7 @@ export function createOnDevice(): OnDevice | null {
     return m;
   };
   const run = async (key: string, request: string | (string | Part)[], promptOptions?: LanguageModelPromptOptions) => {
-    const res = await model(key, promptOptions).generateContent(request);
+    const res = await traced('device', TASKS[key] ?? key, 0, () => model(key, promptOptions).generateContent(request));
     // Belt and braces: ONLY_ON_DEVICE cannot fall back, but refuse any answer that did not come from the device.
     if (res.response.inferenceSource && res.response.inferenceSource !== InferenceSource.ON_DEVICE) throw new Error('Refusing a response that did not come from the on-device model.');
     return res.response.text();
@@ -132,6 +146,16 @@ export function createOnDevice(): OnDevice | null {
     },
     async summarize(overview) {
       return (await run('plain', `Summarize this already-anonymized bookkeeping overview in 3 short sentences. Keep aliases like Vendor_A as they are.\n${overview}`)).trim();
+    },
+    async parseQuestion(question, months) {
+      const prompt = `Turn this question about a small business bank statement into a query. Do not answer it.
+metric: sum (how much), count (how many), largest (biggest single one), list (show them).
+flow: out (spending, payments, charges), in (income, deposits, revenue), any.
+category: one of ${CATEGORIES.join(', ')}, only if the question names a kind of spending.
+vendor: the merchant or person name exactly as written in the question, only if one is named.
+month: YYYY-MM, only if the question names a month. The statement covers ${months.join(', ')}.
+Question: ${question}`;
+      return parseJson(await run('ask', prompt, { responseConstraint: QUERY_SCHEMA }));
     },
     async readImage(image, kind) {
       const [prompt, schema] = PHOTO[kind];

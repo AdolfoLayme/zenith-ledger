@@ -20,6 +20,8 @@ export interface OnDevice {
   summarize(overview: string): Promise<string>;
   /** Reads a JPEG/PNG photo of the given kind. Raw model output, validated by the caller (see photo.ts). */
   readImage(image: Blob, kind: PhotoKind): Promise<unknown>;
+  /** Turns a question about the books into a query (see core/ask.ts). Raw model output, validated by the caller. */
+  parseQuestion(question: string, months: string[]): Promise<unknown>;
 }
 
 /** Receives only the payload the user approved in the Privacy Firewall. */

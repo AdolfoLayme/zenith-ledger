@@ -148,3 +148,20 @@ table.review .hint { display: block; margin-top: 4px; color: var(--warn); font-s
 .note-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
 .origin-list { display: grid; gap: 8px; }
 .origin-row { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+
+/* Ask your books */
+.ask-input { flex: 1; min-width: 240px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.ask-input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.mt-s { margin-top: 10px; }
+.ask-answer { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--ok-soft); }
+.ask-answer > b { font-size: 16px; }
+.ask-query { margin-top: 8px; gap: 6px; }
+
+/* Hybrid AI activity */
+.trace-wrap { position: fixed; right: 20px; bottom: 20px; z-index: 60; }
+.trace-wrap > .btn { box-shadow: 0 6px 18px rgb(15 23 42 / 0.14); }
+.tcount { font-size: 12px; padding: 0 7px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.tcount.dev { background: var(--ok-soft); color: var(--ok); }
+.tcount.cloud { background: var(--accent-soft); color: var(--accent); }
+.trace-panel { position: absolute; right: 0; bottom: calc(100% + 8px); max-height: 70vh; overflow: auto; width: min(640px, 92vw); z-index: 50; box-shadow: 0 12px 32px rgb(15 23 42 / 0.14); }
+.trace-panel tr.failed td { opacity: 0.55; }

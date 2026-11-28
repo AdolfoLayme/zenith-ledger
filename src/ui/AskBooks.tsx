@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { answerQuery, groundQuery, parseQuestionLocally, validateQuery, type BookAnswer } from '../core/ask';
 import { CATEGORIES } from '../core/categories';
 import type { LocalAnalysis } from '../core/pipeline';
+import { recordLocal } from '../ai/trace';
 import type { OnDevice } from '../ai/types';
 import { usd as money } from './format';
 
@@ -29,7 +30,11 @@ export function AskBooks({ analysis, onDevice, nanoReady }: { analysis: LocalAna
         /* fall through to the keyword parser */
       }
     }
-    query ??= parseQuestionLocally(q, CATEGORIES, months);
+    if (!query) {
+      const t0 = performance.now();
+      query = parseQuestionLocally(q, CATEGORIES, months);
+      recordLocal('Ask your books (keyword parser)', performance.now() - t0);
+    }
     setResult({ answer: answerQuery(query, analysis.rows, analysis.aliases), source });
     setBusy(false);
   };

@@ -2,7 +2,8 @@
 export interface TraceEvent {
   at: number;
   where: 'device' | 'cloud';
-  mode: 'ONLY_ON_DEVICE' | 'ONLY_IN_CLOUD';
+  /** DETERMINISTIC = plain code on the device, used when Gemini Nano is not available. */
+  mode: 'ONLY_ON_DEVICE' | 'ONLY_IN_CLOUD' | 'DETERMINISTIC';
   task: string;
   /** Bytes of request body that left this device. Always 0 for on-device calls. */
   bytesOut: number;
@@ -39,6 +40,11 @@ export async function traced<T>(where: TraceEvent['where'], task: string, bytesO
     record({ ...base, ms: Math.round(performance.now() - t0), ok: false });
     throw err;
   }
+}
+
+/** Logs work done by plain code on the device (no model), so the panel is honest without Gemini Nano too. */
+export function recordLocal(task: string, ms: number): void {
+  record({ at: Date.now(), where: 'device', mode: 'DETERMINISTIC', task, bytesOut: 0, ms: Math.round(ms), ok: true });
 }
 
 export const traceTotals = (es: readonly TraceEvent[]) => ({

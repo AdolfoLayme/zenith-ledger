@@ -17,6 +17,8 @@ export interface AlertDecision {
   status: DecisionStatus;
   note: string;
   updatedAt: string;
+  /** Statement period (from_to) the decision was made on, so it does not carry over to another statement. */
+  statement?: string;
 }
 
 export interface SourceRowEvidence {

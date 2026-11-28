@@ -19,6 +19,7 @@ import { syncVault, type ReceiptVault } from '../vault/sync';
 import { usd } from './format';
 import { AskBooks } from './AskBooks';
 import { HybridTrace } from './HybridTrace';
+import { recordLocal } from '../ai/trace';
 
 type Screen = 'upload' | 'review' | 'local' | 'firewall' | 'report' | 'receipts' | 'accountant';
 type ReviewRow = { date: string; description: string; amount: string };
@@ -185,6 +186,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     const autoPrior = existingSummaries.find((p) => p.period.to < firstDate) ?? null;
     const priorAliases = autoPrior ? await loadAliasMap(`period:${autoPrior.id}`).catch(() => null) : null;
 
+    const t0 = performance.now();
     const a = analyzeLocally(rows, {
       entities,
       thresholds: config.thresholds,
@@ -192,6 +194,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
       fileName: name,
       ...(priorAliases ? { initialAliases: priorAliases } : {}),
     });
+    recordLocal(`Local analysis: PII detectors, math, integrity check (${rows.length} rows)`, performance.now() - t0);
     const currentSummary = summarizePeriod(a, name);
     await savePeriodSummary(currentSummary).catch(() => {});
     await saveAliasMap(`period:${currentSummary.id}`, a.aliases).catch(() => {});
@@ -286,25 +289,31 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   const editRow = (i: number, k: keyof ReviewRow, v: string) => setReview((r) => r && { ...r, rows: r.rows.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const confirmReview = () => review && run(() => analyze(rowsFromReview(review.rows.map((x) => ({ ...x, page: 1 })), review.initialRows), review.name, 'photo', review.persons));
 
+  const periodKey = analysis ? `${analysis.period.from}_${analysis.period.to}` : '';
+  // decisions belong to the statement they were made on; the same alert in another statement starts clean
+  const scoped = useMemo(() => Object.fromEntries(Object.entries(decisions).filter(([, d]) => d.statement === periodKey)), [decisions, periodKey]);
+
   async function updateDecision(alertId: string, status: DecisionStatus, note?: string) {
-    const prev = decisions[alertId];
+    const prev = scoped[alertId];
     const next: AlertDecision = {
       alertId,
       status,
       note: note !== undefined ? note : (prev?.note ?? ''),
       updatedAt: new Date().toISOString(),
+      statement: periodKey,
     };
     setDecisions((curr) => ({ ...curr, [alertId]: next }));
     await saveDecision(next);
   }
 
   async function updateDecisionNote(alertId: string, note: string) {
-    const prev = decisions[alertId];
+    const prev = scoped[alertId];
     const next: AlertDecision = {
       alertId,
       status: prev?.status ?? 'ask_accountant',
       note,
       updatedAt: new Date().toISOString(),
+      statement: periodKey,
     };
     setDecisions((curr) => ({ ...curr, [alertId]: next }));
     await saveDecision(next);
@@ -353,7 +362,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     if (!analysis) return;
     setError('');
     try {
-      const bp = await buildAccountantPack(analysis, dossiers, decisions);
+      const bp = await buildAccountantPack(analysis, dossiers, scoped);
       setBuiltPack(bp);
       setFirewallKind('pack');
       setScreen('firewall');
@@ -452,7 +461,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
   }
 
   const real = (s: string) => (analysis ? reidentify(s, analysis.aliases) : s);
-  const askCount = dossiers.filter((d) => decisions[d.id]?.status === 'ask_accountant').length;
+  const askCount = dossiers.filter((d) => scoped[d.id]?.status === 'ask_accountant').length;
   const idx = STEPS.findIndex(([k]) => k === (screen === 'review' ? 'upload' : screen));
 
   function downloadFile(name: string, content: string, mime: string) {
@@ -479,9 +488,9 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
     };
     const base = (fileName || 'statement').replace(/\.[^.]+$/, '');
     if (kind === 'csv') {
-      downloadFile(`${base}-accountant-case.csv`, buildAccountantCaseCsv(dossiers, decisions, opts), 'text/csv;charset=utf-8');
+      downloadFile(`${base}-accountant-case.csv`, buildAccountantCaseCsv(dossiers, scoped, opts), 'text/csv;charset=utf-8');
     } else {
-      downloadFile(`${base}-accountant-case.json`, buildAccountantCaseJson(dossiers, decisions, opts), 'application/json');
+      downloadFile(`${base}-accountant-case.json`, buildAccountantCaseJson(dossiers, scoped, opts), 'application/json');
     }
   }
 
@@ -674,7 +683,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                     dossier={d}
                     open={openDossierId === d.id}
                     onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
-                    decision={decisions[d.id]}
+                    decision={scoped[d.id]}
                     onDecision={(status) => updateDecision(d.id, status)}
                     onNote={(note) => updateDecisionNote(d.id, note)}
                     real={real}
@@ -713,7 +722,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                   onChange={(e) => { onPriorFile(e.target.files?.[0]); e.target.value = ''; }}
                 />
                 {savedPeriods
-                  .filter((p) => p.id !== `${analysis.period.from}_${analysis.period.to}` && p.id !== priorPeriod?.id)
+                  .filter((p) => p.period.to < analysis.period.from && p.id !== priorPeriod?.id)
                   .slice(0, 1)
                   .map((p) => (
                     <button
@@ -744,7 +753,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                     dossier={d}
                     open={openDossierId === d.id}
                     onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
-                    decision={decisions[d.id]}
+                    decision={scoped[d.id]}
                     onDecision={(status) => updateDecision(d.id, status)}
                     onNote={(note) => updateDecisionNote(d.id, note)}
                     real={real}
@@ -768,7 +777,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                   dossier={d}
                   open={openDossierId === d.id}
                   onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
-                  decision={decisions[d.id]}
+                  decision={scoped[d.id]}
                   onDecision={(status) => updateDecision(d.id, status)}
                   onNote={(note) => updateDecisionNote(d.id, note)}
                   real={real}
@@ -787,7 +796,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                       dossier={d}
                       open={openDossierId === d.id}
                       onToggle={() => setOpenDossierId(openDossierId === d.id ? null : d.id)}
-                      decision={decisions[d.id]}
+                      decision={scoped[d.id]}
                       onDecision={(status) => updateDecision(d.id, status)}
                       onNote={(note) => updateDecisionNote(d.id, note)}
                       real={real}
@@ -1141,6 +1150,7 @@ export function App({ extension }: { extension?: ExtensionBridge } = {}) {
                       <textarea
                         rows={3}
                         className="note-input"
+                        spellCheck={false}
                         data-testid="accountant-reply-input"
                         aria-label={`Accountant response for ${item.title}`}
                         placeholder={`Write your advice referencing ${item.vendorAlias}…`}
@@ -1285,6 +1295,7 @@ function DossierRow({
           <input
             type="text"
             className="note-input"
+            spellCheck={false}
             aria-label="Decision note"
             placeholder="Add a note or question for your accountant (stored locally in IndexedDB)…"
             value={decision?.note ?? ''}

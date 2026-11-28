@@ -155,6 +155,17 @@ export function sanitizeQuestion(raw: string, aliases: Map<string, string>): str
   for (const [alias, orig] of entries) {
     out = out.replace(new RegExp(escapeRe(orig.trim()), 'gi'), alias);
   }
+  // 2b. A merchant written shorter than its detected name ("DELTA OFFICE" for "DELTA OFFICE DEPOT"),
+  // unless that shorter text is itself another detected name
+  const known = new Set(entries.map(([, orig]) => orig.trim().toLowerCase()));
+  for (const [alias, orig] of entries) {
+    const words = orig.trim().split(/\s+/);
+    const prefix = words.slice(0, 2).join(' ');
+    if (words.length >= 3 && prefix.length >= 6 && !known.has(prefix.toLowerCase())) out = out.replace(new RegExp(`\\b${escapeRe(prefix)}\\b`, 'gi'), alias);
+  }
+  // 2c. ...or written longer: upper-case words right after an alias belong to the same name
+  // (without Gemini Nano a merchant is detected from its first two words only)
+  out = out.replace(/\b((?:Vendor|Person)_[A-Z]+)((?:\s+[A-Z][A-Z0-9&.'-]+)+)\b/g, '$1');
   // 3. Catch any remaining capitalized full person name after common prepositions/conjunctions and alias it locally
   const personCount = [...aliases.keys()].filter((k) => k.startsWith('Person_')).length;
   let nextPerson = personCount + 1;

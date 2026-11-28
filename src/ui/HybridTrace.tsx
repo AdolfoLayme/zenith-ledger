@@ -22,7 +22,7 @@ export function HybridTrace() {
             <span className="muted" style={{ fontSize: 12.5 }}>{kb(t.bytesOut)} left this device</span>
           </div>
           {events.length === 0 ? (
-            <p className="muted" style={{ fontSize: 13 }}>No model calls yet.</p>
+            <p className="muted" style={{ fontSize: 13 }}>Nothing yet. Load a statement: the local analysis is logged here, and so is every Gemini Nano or cloud Gemini call.</p>
           ) : (
             <table className="mt-s">
               <thead><tr><th>Time</th><th>Task</th><th>Firebase AI Logic mode</th><th className="num">Sent</th><th className="num">ms</th></tr></thead>
@@ -31,7 +31,7 @@ export function HybridTrace() {
                   <tr key={i} className={e.ok ? '' : 'failed'}>
                     <td className="mono">{new Date(e.at).toLocaleTimeString()}</td>
                     <td>{e.task}</td>
-                    <td><span className={`badge ${e.where === 'device' ? '' : 'accent'}`}>{e.mode}</span></td>
+                    <td><span className={`badge ${e.where === 'device' ? '' : 'accent'}`}>{e.mode === 'DETERMINISTIC' ? 'Code on device (no model)' : e.mode}</span></td>
                     <td className="num">{kb(e.bytesOut)}</td>
                     <td className="num">{e.ms}</td>
                   </tr>
@@ -39,7 +39,7 @@ export function HybridTrace() {
               </tbody>
             </table>
           )}
-          <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>On-device calls send nothing. Cloud calls send only the payload you approved in the Privacy Firewall, or one alias-only pack item.</p>
+          <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>On-device work sends nothing, with or without Gemini Nano. Cloud calls send only the payload you approved in the Privacy Firewall, or one alias-only pack item.</p>
         </div>
       )}
     </span>

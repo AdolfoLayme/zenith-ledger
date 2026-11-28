@@ -26,8 +26,12 @@ Zenith Ledger turns a raw statement (CSV, statement/receipt photo, or an open on
 | ![Local analysis](docs/screenshots/01-local-analysis.jpg) | ![Privacy Firewall](docs/screenshots/03-privacy-firewall.jpg) |
 | **Accountant view on a phone, aliases only** | **Reply with real names restored locally** |
 | ![Accountant view](docs/screenshots/07-mobile-accountant.jpg) | ![Re-identified reply](docs/screenshots/08-reidentified-reply.jpg) |
+| **Ask your books: Gemini Nano reads the question, code adds the rows** | **Every AI call, its mode, and the bytes that left the device** |
+| ![Ask your books](docs/media/ask.gif) | ![Hybrid AI activity](docs/media/ai-activity.jpg) |
 
 ## Architecture: What Runs On-Device, In the Cloud, and In Firestore
+
+![Each layer sees only what it needs](docs/media/architecture.png)
 
 ```mermaid
 flowchart LR

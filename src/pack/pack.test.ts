@@ -10,6 +10,7 @@ import {
   isPackExpired,
   memoryPackStore,
   parseAccountantPack,
+  sanitizeQuestion,
   parsePackReply,
 } from './pack';
 
@@ -171,5 +172,20 @@ describe('Accountant review pack', () => {
     // After expiration, get and reply are refused
     const expiredStore = memoryPackStore(() => nowMs + 7200_000);
     await expect(expiredStore.create(built.pack)).rejects.toThrow(/expired/i);
+  });
+});
+
+describe('sanitizeQuestion merchant names', () => {
+  it('replaces a merchant written longer than the detected name (strict mode keeps two words)', () => {
+    const aliases = new Map([['Vendor_C', 'DELTA OFFICE']]);
+    expect(sanitizeQuestion('Did DELTA OFFICE DEPOT charge us twice?', aliases)).toBe('Did Vendor_C charge us twice?');
+  });
+  it('replaces a merchant written shorter than the detected name', () => {
+    const aliases = new Map([['Vendor_C', 'DELTA OFFICE DEPOT']]);
+    expect(sanitizeQuestion('Did delta office charge us twice?', aliases)).toBe('Did Vendor_C charge us twice?');
+  });
+  it('prefers an alias whose name is exactly the shorter text', () => {
+    const aliases = new Map([['Vendor_C', 'DELTA OFFICE DEPOT'], ['Vendor_AB', 'DELTA OFFICE']]);
+    expect(sanitizeQuestion('Was DELTA OFFICE paid?', aliases)).toBe('Was Vendor_AB paid?');
   });
 });
